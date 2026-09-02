@@ -8,7 +8,7 @@ Abrí `index.html` en el navegador. Los datos se guardan en `localStorage` del n
 ## Qué incluye
 Para el dueño, la navegación está organizada en 3 secciones:
 
-- **🌐 Web virtual** — configuración de horario de atención, qué servicios mostrar, vista previa de la vidriera online, y texto listo para compartir por WhatsApp/Instagram. Todavía es solo una vista previa (ver "Estado" abajo).
+- **🌐 Web virtual** — configuración de horario de atención, qué servicios mostrar, vista previa de la vidriera online, y texto listo para compartir por WhatsApp/Instagram. Desde acá hay un link a `reservar.html`: una página de reservas interactiva (elegís servicio, barbero, día/horario libre y tus datos) que guarda el turno directo en la Agenda — funciona hoy mismo en el mismo dispositivo/navegador. Todavía no es un link público multi-dispositivo (ver "Estado" abajo).
 - **🗓 Agenda** — turnos con detección de choques de horario. Al marcar un turno como "Atendido" (eligiendo el medio de pago), se genera automáticamente el corte correspondiente en Finanzas — no hace falta cargarlo dos veces. Los registros vinculados muestran un 🔗.
 - **💰 Finanzas** — Panel (KPIs y gráficos), Cargar (cortes/productos), Servicios, Gráficos, **Cierre de caja diario** (registro inmutable por día con historial y exportación a CSV listo para Excel), Barberos y comisiones, Precios, Gastos y sueldos, Stock.
 

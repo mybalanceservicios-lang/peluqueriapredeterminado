@@ -618,7 +618,7 @@ function agendaTable(list,showBarb){
     const estadoCell=t.estado==="done"
       ?`<span class="pill done" data-tg="${t.id}" style="cursor:pointer" title="Volver a pendiente (no borra lo ya cobrado)">Atendido ✓</span>`
       :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
-    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`;
+    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span title="Reservado desde la página de reservas">🌐</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`;
   }).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
   return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="sub" style="margin-top:10px">Al marcar "Atendido" se carga solo en Finanzas con el medio de pago elegido — no hace falta cargarlo de nuevo en "Cargar".</div></div>`;
 }
@@ -731,6 +731,10 @@ function tWebVirtual(){
   const textoCompartir=`${DB.nombre||"Mi Barbería"}\n${diasTxt} · ${h.apertura} a ${h.cierre}\n\n${serviciosTxt}`;
   return head("Web virtual","Configurá cómo se va a ver tu página de reservas online. Esto todavía es una vista previa — el link público real necesita conectar una base de datos en la nube.",true)
   +`<div class="warnbox">🌐 <b>Vista previa, no es un link público todavía.</b> Acá configurás los datos que se van a usar cuando activemos las reservas online reales. Mientras tanto, usá el texto de abajo para compartir por WhatsApp o redes.</div>
+  <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+    <div><h3 style="margin-bottom:2px">👁 Probá cómo se vería para un cliente</h3><div class="sub" style="margin-bottom:0">Abre la página de reservas con tus datos actuales (horario, servicios, barberos). Guarda el turno en este mismo dispositivo — todavía no llega a otro celular.</div></div>
+    <a href="reservar.html" target="_blank" class="savebtn" style="text-decoration:none;white-space:nowrap">Ver página de reservas →</a>
+  </div>
   <div class="card"><h3>Horario de atención</h3>
     <div class="addform" style="margin-bottom:12px">
       <div class="ff"><label>Apertura</label><input type="time" id="wv-apertura" value="${h.apertura}"></div>

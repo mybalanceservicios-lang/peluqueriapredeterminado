@@ -1,0 +1,243 @@
+<meta charset="UTF-8">
+<title>Reservar turno</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --radius:16px;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --ground:#F6F1E8; --panel:#FFFFFF; --panel-2:#F2ECE0; --panel-3:#EBE3D3;
+    --ink:#241D14; --ink-2:#5B5142; --ink-3:#8A7F6C;
+    --line:#E5DCC9; --line-2:#EFE8DA;
+    --accent:#A87A1C; --accent-ink:#8A6212; --accent-soft:#F5EAD0; --accent-2:#C79433;
+    --good:#2E7D37; --good-soft:#E3F1E4; --warn:#B4791A; --warn-soft:#FBEBD2;
+    --shadow:0 1px 2px rgba(60,50,30,.06),0 10px 26px -14px rgba(60,50,30,.2);
+    --shadow-lg:0 2px 6px rgba(60,50,30,.08),0 30px 55px -24px rgba(60,50,30,.28);
+    --ease-out:cubic-bezier(.16,1,.3,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;cursor:pointer}
+  input{font-family:inherit}
+  .wrap{max-width:560px;margin:0 auto;padding:20px 16px 60px}
+  .fade{animation:fade .3s ease}@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .demobar{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);border-radius:12px;padding:11px 14px;font-size:12.5px;color:var(--ink-2);margin-bottom:16px;text-align:center}
+  .demobar b{color:var(--warn)}
+
+  .brand{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;margin-bottom:20px}
+  .brand .logo{width:56px;height:56px;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);background:#141210}
+  .brand .logo img{width:100%;height:100%;object-fit:cover;display:block}
+  .brand h1{margin:0;font-size:20px;letter-spacing:-.01em}
+  .brand p{margin:0;color:var(--ink-3);font-size:12.5px}
+
+  .steps{display:flex;justify-content:center;gap:6px;margin-bottom:18px}
+  .step-dot{width:26px;height:4px;border-radius:3px;background:var(--panel-3)}
+  .step-dot.on{background:var(--accent)}
+  .step-dot.done{background:var(--accent-2)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+  .card h2{margin:0 0 3px;font-size:17px;letter-spacing:-.01em}
+  .card .sub{color:var(--ink-3);font-size:12.5px;margin:0 0 16px}
+
+  .opt{width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;border:1.5px solid var(--line);background:var(--panel-2);border-radius:13px;padding:14px 16px;margin-bottom:9px;font-size:14.5px;font-weight:600;color:var(--ink);transition:.12s}
+  .opt:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .opt .av{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:14px;color:#1a1206;background:var(--accent-2);flex-shrink:0}
+  .opt .left{display:flex;align-items:center;gap:11px}
+  .opt small{display:block;color:var(--ink-3);font-weight:600;font-size:12px;margin-top:1px}
+  .opt .price{color:var(--accent-ink);font-weight:800}
+
+  .backrow{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .backbtn{border:0;background:none;color:var(--ink-3);font-size:13px;font-weight:700;padding:4px 0}
+  .backbtn:hover{color:var(--accent-ink)}
+
+  .datepick{display:flex;gap:8px;align-items:center;margin-bottom:16px}
+  .datepick input{flex:1;background:var(--panel-2);border:1.5px solid var(--line);border-radius:11px;padding:11px 13px;font-size:14px;color:var(--ink);outline:none}
+  .datepick input:focus{border-color:var(--accent)}
+
+  .slotgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .slot{border:1.5px solid var(--line);background:var(--panel-2);border-radius:11px;padding:11px 6px;font-size:13.5px;font-weight:700;color:var(--ink)}
+  .slot:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+  .empty{text-align:center;color:var(--ink-3);font-size:13px;padding:24px 10px}
+
+  .bf{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .bf label{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+  .bf input{background:var(--panel-2);border:1.5px solid var(--line);border-radius:11px;padding:13px 14px;font-size:16px;color:var(--ink);outline:none}
+  .bf input:focus{border-color:var(--accent);background:var(--panel-3)}
+
+  .resumen{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:16px;font-size:13.5px}
+  .resumen div{display:flex;justify-content:space-between;padding:4px 0}
+  .resumen b{font-weight:700}
+
+  .confirmar{width:100%;border:0;background:var(--accent);color:#1a1206;font-weight:800;font-size:16px;padding:15px;border-radius:13px;box-shadow:var(--shadow)}
+  .confirmar:hover{background:var(--accent-ink)}
+  .confirmar:disabled{opacity:.5;cursor:not-allowed}
+
+  .okstage{text-align:center;padding:20px 6px}
+  .okstage .check{width:64px;height:64px;border-radius:50%;background:var(--good-soft);color:var(--good);display:grid;place-items:center;font-size:32px;margin:0 auto 16px}
+  .okstage h2{margin:0 0 6px}
+  .okstage p{color:var(--ink-2);font-size:14px;margin:0 0 6px}
+  .okstage .detalle{font-size:15px;font-weight:700;color:var(--accent-ink);margin:14px 0}
+  .otra{margin-top:18px;border:1px solid var(--line);background:var(--panel);color:var(--ink-2);font-weight:700;font-size:13px;padding:11px 18px;border-radius:11px}
+
+  .footer{margin-top:20px;color:var(--ink-3);font-size:11.5px;text-align:center}
+</style>
+
+<div class="wrap">
+  <div class="demobar">🌐 <b>Vista de demostración.</b> Esta reserva se guarda solo en este dispositivo/navegador. Para que un cliente reserve desde su propio celular y aparezca en la agenda real, hace falta conectar la nube.</div>
+  <div class="brand">
+    <div class="logo"><img id="b-logo" src="" alt="Logo"></div>
+    <h1 id="b-nombre">Mi Barbería</h1>
+    <p id="b-horario"></p>
+  </div>
+  <div class="steps" id="steps"></div>
+  <div id="root"></div>
+  <p class="footer">Reservá tu turno en simples pasos.</p>
+</div>
+
+<script>
+"use strict";
+const $=(s,e=document)=>e.querySelector(s);
+const root=$("#root");
+const KEY="barberia_v1";
+const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj4KPGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iNTgiIGZpbGw9IiNGNUVBRDAiIHN0cm9rZT0iI0E4N0ExQyIgc3Ryb2tlLXdpZHRoPSIzIi8+CjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYwLDYwKSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTg3QTFDIiBzdHJva2Utd2lkdGg9IjciIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9IjE4IiByPSI4IiBmaWxsPSIjRjVFQUQwIi8+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9Ii0xOCIgcj0iOCIgZmlsbD0iI0Y1RUFEMCIvPgo8bGluZSB4MT0iLTEzIiB5MT0iMTMiIHgyPSIyNiIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iLTEzIiB5MT0iLTEzIiB4Mj0iMjYiIHkyPSIyMiIvPgo8bGluZSB4MT0iMjYiIHkxPSItMjIiIHgyPSIzNCIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iMjYiIHkxPSIyMiIgeDI9IjM0IiB5Mj0iMjIiLz4KPC9nPgo8L3N2Zz4=";
+const DIAS_SEM=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+
+function pid(){return Math.random().toString(36).slice(2,9);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function money(n){return "$"+Math.round(n||0).toLocaleString("es-AR");}
+function today(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function nowMin(){const d=new Date();return d.getHours()*60+d.getMinutes();}
+
+function load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
+function save(db){try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){}}
+
+let DB=load();
+const SIN_DATOS = !DB;
+if(!DB){
+  // no hay negocio configurado todavía en este navegador — mostramos un aviso claro en vez de romper
+  DB={nombre:"Mi Barbería",logo:null,barberos:[],precios:[],horario:{apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]},turnos:[]};
+}
+DB.horario=DB.horario||{apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]};
+DB.turnos=DB.turnos||[];
+
+const S={step:1,servicio:null,barbero:null,fecha:today(),hora:null,nombre:"",telefono:""};
+
+function pintarMarca(){
+  $("#b-nombre").textContent=DB.nombre||"Mi Barbería";
+  $("#b-logo").src=DB.logo||DEFAULT_LOGO;
+  const h=DB.horario;
+  const diasTxt=h.dias.length===7?"Todos los días":DIAS_SEM.filter((d,i)=>h.dias.includes(i)).join(", ")||"Cerrado";
+  $("#b-horario").textContent=diasTxt+" · "+h.apertura+" a "+h.cierre;
+}
+
+function slotsDisponibles(fecha,barbero){
+  const dow=new Date(fecha+"T00:00:00").getDay();
+  if(!DB.horario.dias.includes(dow))return [];
+  const [hA,mA]=DB.horario.apertura.split(":").map(Number);
+  const [hC,mC]=DB.horario.cierre.split(":").map(Number);
+  const dur=DB.horario.duracion||30;
+  const inicio=hA*60+mA, fin=hC*60+mC;
+  const ocupados=new Set(DB.turnos.filter(t=>t.fecha===fecha&&t.barbero===barbero).map(t=>t.hora));
+  const esHoy=fecha===today();
+  const limiteInferior=esHoy?nowMin():-1;
+  const slots=[];
+  for(let cur=inicio;cur+dur<=fin;cur+=dur){
+    if(cur<=limiteInferior)continue;
+    const hh=String(Math.floor(cur/60)).padStart(2,"0"),mm=String(cur%60).padStart(2,"0");
+    const hora=hh+":"+mm;
+    if(!ocupados.has(hora))slots.push(hora);
+  }
+  return slots;
+}
+
+function renderSteps(){
+  const total=4;
+  $("#steps").innerHTML=[1,2,3,4].map(n=>`<span class="step-dot ${S.step===n?"on":S.step>n?"done":""}"></span>`).join("");
+}
+
+function render(){
+  renderSteps();
+  if(SIN_DATOS){
+    root.innerHTML=`<div class="card fade"><h2>Todavía no hay nada configurado</h2><div class="sub">Abrí primero el sistema de gestión (index.html) en este mismo navegador para cargar barberos, servicios y horario — después esta página va a mostrar la vidriera real.</div></div>`;
+    return;
+  }
+  if(S.step===1)return renderServicio();
+  if(S.step===2)return renderBarbero();
+  if(S.step===3)return renderFechaHora();
+  if(S.step===4)return renderDatos();
+  if(S.step===5)return renderOk();
+}
+
+function renderServicio(){
+  const visibles=(DB.precios||[]).filter(p=>p.visible!==false);
+  root.innerHTML=`<div class="card fade"><h2>¿Qué querés hacerte?</h2><div class="sub">Elegí un servicio para empezar</div>
+    ${visibles.length?visibles.map(p=>`<button class="opt" data-serv="${esc(p.tipo)}"><span class="left"><span>${esc(p.tipo)}</span></span><span class="price">${p.precio>0?money(p.precio):"A consultar"}</span></button>`).join(""):'<div class="empty">Todavía no hay servicios cargados para mostrar.</div>'}
+  </div>`;
+  document.querySelectorAll("[data-serv]").forEach(b=>b.onclick=()=>{S.servicio=b.dataset.serv;S.step=2;render();});
+}
+function renderBarbero(){
+  root.innerHTML=`<div class="backrow"><button class="backbtn" id="back1">← Volver</button></div>
+  <div class="card fade"><h2>¿Con quién?</h2><div class="sub">Servicio: <b>${esc(S.servicio)}</b></div>
+    ${DB.barberos.length?DB.barberos.map(b=>`<button class="opt" data-barb="${esc(b.n)}"><span class="left"><span class="av">${esc((b.n[0]||"?").toUpperCase())}</span><span>${esc(b.n)}</span></span></button>`).join(""):'<div class="empty">Todavía no hay barberos cargados.</div>'}
+  </div>`;
+  $("#back1").onclick=()=>{S.step=1;render();};
+  document.querySelectorAll("[data-barb]").forEach(b=>b.onclick=()=>{S.barbero=b.dataset.barb;S.step=3;render();});
+}
+function renderFechaHora(){
+  const slots=slotsDisponibles(S.fecha,S.barbero);
+  root.innerHTML=`<div class="backrow"><button class="backbtn" id="back2">← Volver</button></div>
+  <div class="card fade"><h2>¿Cuándo?</h2><div class="sub">${esc(S.servicio)} con <b>${esc(S.barbero)}</b></div>
+    <div class="datepick"><input type="date" id="f-fecha" value="${S.fecha}" min="${today()}"></div>
+    <div class="slotgrid" id="slotgrid">${slots.length?slots.map(h=>`<button class="slot" data-hora="${h}">${h}</button>`).join(""):'<div class="empty" style="grid-column:1/-1">Sin horarios libres ese día. Probá otra fecha.</div>'}</div>
+  </div>`;
+  $("#back2").onclick=()=>{S.step=2;render();};
+  $("#f-fecha").onchange=()=>{S.fecha=val("#f-fecha")||today();render();};
+  document.querySelectorAll("[data-hora]").forEach(b=>b.onclick=()=>{S.hora=b.dataset.hora;S.step=4;render();});
+}
+function val(sel){const e=$(sel);return e?e.value:"";}
+function renderDatos(){
+  root.innerHTml="";
+  root.innerHTML=`<div class="backrow"><button class="backbtn" id="back3">← Volver</button></div>
+  <div class="card fade"><h2>Tus datos</h2><div class="sub">Para confirmarte el turno</div>
+    <div class="resumen">
+      <div><span>Servicio</span><b>${esc(S.servicio)}</b></div>
+      <div><span>Barbero</span><b>${esc(S.barbero)}</b></div>
+      <div><span>Fecha</span><b>${fdate(S.fecha)}</b></div>
+      <div><span>Hora</span><b>${S.hora}</b></div>
+    </div>
+    <div class="bf"><label>Nombre</label><input id="d-nombre" placeholder="Tu nombre" value="${esc(S.nombre)}"></div>
+    <div class="bf"><label>Teléfono</label><input id="d-tel" placeholder="Ej: 11 5555-5555" value="${esc(S.telefono)}"></div>
+    <button class="confirmar" id="confirmar">Confirmar reserva</button>
+  </div>`;
+  $("#back3").onclick=()=>{S.step=3;render();};
+  const btn=$("#confirmar");
+  const chequear=()=>{btn.disabled=!val("#d-nombre").trim();};
+  $("#d-nombre").oninput=chequear;
+  chequear();
+  btn.onclick=()=>{
+    const nombre=val("#d-nombre").trim();
+    if(!nombre)return;
+    S.nombre=nombre;S.telefono=val("#d-tel").trim();
+    const choque=DB.turnos.find(t=>t.fecha===S.fecha&&t.hora===S.hora&&t.barbero===S.barbero);
+    if(choque){S.step=3;render();return;} // alguien lo tomó justo antes — volvemos a elegir horario
+    DB.turnos.push({id:pid(),fecha:S.fecha,hora:S.hora,barbero:S.barbero,cliente:nombre,telefono:S.telefono,servicio:S.servicio,estado:"pend",origen:"web"});
+    save(DB);
+    S.step=5;render();
+  };
+}
+function renderOk(){
+  root.innerHTML=`<div class="card fade okstage">
+    <div class="check">✓</div>
+    <h2>¡Turno reservado!</h2>
+    <p>Te esperamos en ${esc(DB.nombre||"la barbería")}.</p>
+    <div class="detalle">${esc(S.servicio)} con ${esc(S.barbero)}<br>${fdate(S.fecha)} a las ${S.hora}</div>
+    <p style="font-size:12px;color:var(--ink-3)">Guardado en este dispositivo. En la versión con nube, esto avisa automáticamente a la barbería.</p>
+    <button class="otra" id="otra">Reservar otro turno</button>
+  </div>`;
+  $("#otra").onclick=()=>{S.step=1;S.servicio=null;S.barbero=null;S.hora=null;S.nombre="";S.telefono="";render();};
+}
+function fdate(iso){const p=iso.split("-");return p.length===3?p[2]+"/"+p[1]+"/"+p[0]:iso;}
+
+pintarMarca();
+render();
+</script>
