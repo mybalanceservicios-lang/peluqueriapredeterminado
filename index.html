@@ -1,0 +1,930 @@
+<meta charset="UTF-8">
+<title>Gestión de Barbería</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --radius:16px;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,"Cascadia Mono","Segoe UI Mono",Menlo,monospace;
+    --ground:#F6F1E8; --panel:#FFFFFF; --panel-2:#F2ECE0; --panel-3:#EBE3D3;
+    --ink:#241D14; --ink-2:#5B5142; --ink-3:#8A7F6C;
+    --line:#E5DCC9; --line-2:#EFE8DA;
+    --accent:#A87A1C; --accent-ink:#8A6212; --accent-soft:#F5EAD0; --accent-2:#C79433;
+    --red:#B3352F; --red-soft:#F7E0DE;
+    --good:#2E7D37; --good-soft:#E3F1E4; --crit:#B93A33; --crit-soft:#F7E0DE; --warn:#B4791A; --warn-soft:#FBEBD2;
+    --shadow:0 1px 2px rgba(60,50,30,.06),0 10px 26px -14px rgba(60,50,30,.2);
+    --shadow-lg:0 2px 6px rgba(60,50,30,.08),0 30px 55px -24px rgba(60,50,30,.28);
+    --ease-out:cubic-bezier(.16,1,.3,1); --ease-in-out:cubic-bezier(.65,0,.35,1);
+  }
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;cursor:pointer}
+  input,select{font-family:inherit}
+  .tnum{font-variant-numeric:tabular-nums}
+  .wrap{max-width:1160px;margin:0 auto;padding:16px 16px 60px}
+
+  .topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  .logo{width:42px;height:42px;border-radius:11px;overflow:hidden;display:grid;place-items:center;box-shadow:var(--shadow);flex-shrink:0;background:#141210}
+  .logo img{width:100%;height:100%;object-fit:cover;display:block}
+  .brand h1{font-size:18px;margin:0;letter-spacing:.02em;font-weight:750;font-style:italic}
+  .brand span{display:block;font-size:11px;color:var(--ink-3);font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+  .spacer{flex:1}
+  .tbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink-2);font-size:12.5px;font-weight:600;padding:0 13px;height:40px;border-radius:11px;display:flex;align-items:center;gap:7px}
+  .tbtn:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .tbtn.icon{width:40px;justify-content:center;padding:0;font-size:16px}
+  .who{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:5px 6px 5px 12px;height:40px}
+  .who .av{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:700;font-size:12px;color:#1a1206}
+  .who b{font-size:13px}.who small{font-size:10.5px;color:var(--ink-3);display:block;line-height:1}
+  .who .swap{border:0;background:var(--panel-2);color:var(--ink-2);font-size:11px;font-weight:700;padding:7px 10px;border-radius:8px}
+  .who .swap:hover{background:var(--accent);color:#1a1206}
+
+  .fade{animation:fade .3s ease}@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* profile selector */
+  .selstage{min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}
+  .selstage .big-logo{width:96px;height:96px;border-radius:24px;overflow:hidden;display:grid;place-items:center;margin-bottom:18px;box-shadow:var(--shadow-lg);background:#141210}
+  .selstage .big-logo img{width:100%;height:100%;object-fit:cover;display:block}
+  .selstage h2{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .selstage .sub{color:var(--ink-3);font-size:14.5px;margin:0 0 30px}
+  .profgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;width:100%;max-width:660px}
+  .profcard{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px 16px;display:flex;flex-direction:column;align-items:center;gap:10px;transition:.15s}
+  .profcard:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+  .profcard .pav{width:62px;height:62px;border-radius:16px;display:grid;place-items:center;font-weight:800;font-size:26px;color:#1a1206}
+  .profcard b{font-size:16px}.profcard small{font-size:11.5px;color:var(--ink-3)}
+  .profcard.owner{border-color:color-mix(in srgb,var(--accent) 40%,var(--line));background:linear-gradient(180deg,var(--accent-soft),var(--panel))}
+  .profcard.owner .pav{background:var(--panel-3);color:var(--accent-ink);border:1.5px solid var(--accent)}
+
+  /* pin */
+  .pinstage{min-height:70vh;display:grid;place-items:center;padding:20px}
+  .pincard{width:100%;max-width:340px;background:var(--panel);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);padding:30px 26px;text-align:center}
+  .pincard .lock{font-size:34px;margin-bottom:6px}
+  .pincard h3{font-size:20px;margin:0 0 4px}.pincard p{color:var(--ink-3);font-size:13px;margin:0 0 20px}
+  .pindots{display:flex;gap:14px;justify-content:center;margin-bottom:22px}
+  .pindot{width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);background:var(--panel-2);transition:.15s}
+  .pindot.on{background:var(--accent);border-color:var(--accent)}
+  .pindot.err{background:var(--crit);border-color:var(--crit);animation:shake .3s}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .keypad button{aspect-ratio:1.5;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:22px;font-weight:700;border-radius:12px}
+  .keypad button:hover{border-color:var(--accent);background:var(--panel-3)}
+  .keypad button.wide{font-size:14px;font-weight:600;color:var(--ink-3)}
+  .pinerr{color:var(--crit);font-size:12.5px;font-weight:600;margin-top:14px;min-height:16px}
+  .pinback{margin-top:16px;border:0;background:none;color:var(--ink-3);font-size:12.5px;font-weight:600}
+  .pinback:hover{color:var(--accent-ink)}
+
+  /* app shell */
+  .app{display:grid;grid-template-columns:210px 1fr;gap:14px}
+  @media (max-width:820px){.app{grid-template-columns:1fr}}
+  .side{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:11px 9px;display:flex;flex-direction:column;gap:2px;align-self:start;position:sticky;top:14px}
+  @media (max-width:820px){.side{position:static;flex-direction:row;flex-wrap:wrap}}
+  .side .sect{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:10px 10px 5px}
+  .navitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;font-size:13.5px;color:var(--ink-2);font-weight:550;background:none;border:0;width:100%;text-align:left}
+  .navitem .gi{width:18px;text-align:center;font-size:15px}
+  .navitem:hover{background:var(--panel-2)}
+  .navitem.on{background:var(--accent);color:#1a1206;font-weight:700}
+  .navitem.on .gi{opacity:1}
+  .navitem .lk{margin-left:auto;font-size:11px}
+
+  .main{min-width:0}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .head h2{margin:0;font-size:22px;letter-spacing:-.02em}
+  .head p{margin:2px 0 0;color:var(--ink-3);font-size:13px}
+  .ownerband{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:var(--accent-ink);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);padding:5px 11px;border-radius:20px}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:14px}
+  @media (max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
+  .kpi .lbl{font-size:10px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .kpi .val{font-size:22px;font-weight:750;letter-spacing:-.03em;margin-top:5px}
+  .kpi .delta{font-size:11.5px;font-weight:650;margin-top:3px;color:var(--ink-3)}
+  .up-c{color:var(--good)}.dn-c{color:var(--crit)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 17px;margin-bottom:13px}
+  .card:last-child{margin-bottom:0}
+  .card h3{margin:0 0 2px;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .card .sub{color:var(--ink-3);font-size:12px;margin-bottom:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  @media (max-width:820px){.grid2{grid-template-columns:1fr}}
+
+  /* load form big */
+  .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:16px}
+  .seg button{border:0;background:transparent;color:var(--ink-2);font-weight:700;font-size:14px;padding:9px 20px;border-radius:9px}
+  .seg button.sel{background:var(--accent);color:#1a1206}
+  .bigform{display:flex;flex-direction:column;gap:14px;max-width:520px}
+  .bf-row{display:flex;gap:12px;flex-wrap:wrap}
+  .bf{display:flex;flex-direction:column;gap:6px;flex:1;min-width:130px}
+  .bf label{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+  .bf input,.bf select{background:var(--panel-2);border:1.5px solid var(--line);border-radius:11px;padding:13px 14px;font-size:16px;color:var(--ink);outline:none}
+  .bf input:focus,.bf select:focus{border-color:var(--accent);background:var(--panel-3)}
+  .bf .price-big{font-size:26px;font-weight:800;color:var(--accent-ink);letter-spacing:-.02em}
+  .cargar{border:0;background:var(--accent);color:#1a1206;font-weight:800;font-size:17px;padding:16px;border-radius:13px;box-shadow:var(--shadow);letter-spacing:.01em}
+  .cargar:hover{background:var(--accent-ink)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{border:1.5px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:14px;font-weight:650;padding:11px 15px;border-radius:11px;display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:96px}
+  .chip small{font-size:11.5px;color:var(--ink-3);font-weight:600}
+  .chip.sel{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+  .chip.sel small{color:var(--accent-ink)}
+
+  /* addform inline */
+  .addform{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:14px}
+  .ff{display:flex;flex-direction:column;gap:4px}.ff.grow{flex:1;min-width:120px}
+  .ff label{font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+  .ff input,.ff select{background:var(--panel);border:1.5px solid var(--line);border-radius:9px;padding:9px 10px;font-size:13.5px;color:var(--ink);outline:none;min-width:0}
+  .ff input:focus,.ff select:focus{border-color:var(--accent)}
+  .ff input[type=number]{width:105px}.ff input[type=date]{width:145px}.ff input[type=time]{width:95px}
+  .addbtn{border:0;background:var(--accent);color:#1a1206;font-weight:700;font-size:13.5px;padding:9px 16px;border-radius:9px;height:37px}
+  .addbtn:hover{background:var(--accent-ink)}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line-2)}
+  tr:last-child td{border-bottom:0}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl-wrap{overflow-x:auto}
+  .del{border:0;background:none;color:var(--ink-3);font-size:15px;padding:2px 6px;border-radius:6px}
+  .del:hover{color:var(--crit);background:var(--crit-soft)}
+  .empty{text-align:center;color:var(--ink-3);font-size:13px;padding:26px 10px}
+  .totbar{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;margin-top:12px;font-size:13px}
+  .totbar b{font-size:18px;letter-spacing:-.02em;color:var(--accent-ink)}
+  .pill{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+  .pill.ok{background:var(--good-soft);color:var(--good)}.pill.rep{background:var(--crit-soft);color:var(--crit)}
+  .pill.pend{background:var(--panel-3);color:var(--ink-3)}.pill.done{background:var(--good-soft);color:var(--good)}
+  tr.rowalert td{background:var(--warn-soft,#FBEBD2);animation:rowin .35s var(--ease-out)}
+  @keyframes rowin{from{background:var(--accent-soft)}to{background:var(--warn-soft,#FBEBD2)}}
+  .overlapnote{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--warn);margin-top:2px}
+  .datenav{display:flex;align-items:center;gap:8px}
+  .datenav button{border:1px solid var(--line);background:var(--panel);color:var(--ink-2);font-weight:700;width:34px;height:34px;border-radius:9px;font-size:14px}
+  .datenav button:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .datenav .lbl{font-size:13px;font-weight:700;min-width:150px;text-align:center}
+  .datenav .today{font-size:11px;font-weight:700;color:var(--accent-ink);background:var(--accent-soft);border:0;width:auto;padding:0 10px;border-radius:20px;height:26px}
+  .av-sm{width:26px;height:26px;border-radius:7px;display:inline-grid;place-items:center;font-weight:700;font-size:11px;color:#1a1206;vertical-align:middle;margin-right:7px}
+  .av-edit{position:relative;display:inline-block;border:0;background:none;padding:0;margin-right:7px;cursor:pointer;vertical-align:middle;border-radius:7px;transition:transform .15s var(--ease-out)}
+  .av-edit:hover{transform:scale(1.06)}
+  .av-edit .av-sm{margin-right:0}
+  .av-edit-badge{position:absolute;bottom:-4px;right:-4px;background:var(--accent);border:2px solid var(--panel);border-radius:50%;font-size:9px;width:16px;height:16px;display:grid;place-items:center;line-height:1}
+
+  .chart{display:flex;align-items:flex-end;gap:14px;height:160px;padding-top:8px}
+  .barcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end;min-width:0}
+  .barwrap{display:flex;gap:4px;align-items:flex-end;height:100%;width:100%;justify-content:center}
+  .bar{width:26px;border-radius:5px 5px 2px 2px;transition:height .5s cubic-bezier(.2,.7,.3,1);min-height:2px}
+  .bar.i{background:linear-gradient(180deg,var(--accent-2),var(--accent))}
+  .bar.e{background:var(--panel-3);border:1px solid var(--line)}
+  .barcol small{color:var(--ink-3);font-size:11px;font-weight:600;text-align:center;line-height:1.1}
+  .barcol .bv{font-size:10.5px;color:var(--ink-2);font-weight:700}
+  .legend{display:flex;gap:16px;font-size:11.5px;color:var(--ink-2);margin-top:12px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+  .hbar{margin-bottom:11px}
+  .hbar .hl{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px}
+  .hbar .ht{height:9px;background:var(--panel-2);border-radius:5px;overflow:hidden}
+  .hbar .hf{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:5px}
+
+  .perm-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line-2)}
+  .perm-row:last-child{border-bottom:0}.perm-row .pn{flex:1;font-size:13.5px;font-weight:550}
+  .perm-row .pn small{display:block;color:var(--ink-3);font-size:11.5px;font-weight:400}
+  .miniin{background:var(--panel-2);border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;font-size:14px;color:var(--ink);outline:none;width:110px;text-align:right}
+  .miniin:focus{border-color:var(--accent)}
+  .savebtn{border:0;background:var(--accent);color:#1a1206;font-weight:700;font-size:13px;padding:9px 15px;border-radius:9px}
+  .savebtn:hover{background:var(--accent-ink)}
+  .warnbox{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);border-radius:11px;padding:11px 13px;font-size:12.5px;color:var(--ink-2);margin-bottom:14px}
+  .warnbox b{color:var(--accent-ink)}
+
+  .footer{margin-top:22px;color:var(--ink-3);font-size:12px;text-align:center}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#1a1206;font-size:14px;font-weight:700;padding:13px 22px;border-radius:12px;box-shadow:var(--shadow-lg);opacity:0;pointer-events:none;transition:.3s;z-index:60}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><div class="logo"><img id="topbar-logo-img" src="" alt="Logo"></div><div><h1 id="topbar-name">Mi Barbería</h1><span>Gestión de barbería</span></div></div>
+    <div class="spacer"></div>
+    <div id="whoslot"></div>
+  </div>
+  <div id="root"></div>
+  <p class="footer" id="foot"></p>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $=(s,e=document)=>e.querySelector(s);
+const root=$("#root");
+const KEY="barberia_v1";
+const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj4KPGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iNTgiIGZpbGw9IiNGNUVBRDAiIHN0cm9rZT0iI0E4N0ExQyIgc3Ryb2tlLXdpZHRoPSIzIi8+CjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYwLDYwKSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTg3QTFDIiBzdHJva2Utd2lkdGg9IjciIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9IjE4IiByPSI4IiBmaWxsPSIjRjVFQUQwIi8+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9Ii0xOCIgcj0iOCIgZmlsbD0iI0Y1RUFEMCIvPgo8bGluZSB4MT0iLTEzIiB5MT0iMTMiIHgyPSIyNiIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iLTEzIiB5MT0iLTEzIiB4Mj0iMjYiIHkyPSIyMiIvPgo8bGluZSB4MT0iMjYiIHkxPSItMjIiIHgyPSIzNCIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iMjYiIHkxPSIyMiIgeDI9IjM0IiB5Mj0iMjIiLz4KPC9nPgo8L3N2Zz4=";
+
+/* ---------- default data (plantilla en blanco) ---------- */
+function defaultDB(){
+  return {
+    nombre:"Mi Barbería",
+    logo:null,
+    barberos:[{n:"Barbero 1",com:0.5,foto:null},{n:"Barbero 2",com:0.5,foto:null},{n:"Barbero 3",com:0.5,foto:null}],
+    pin:"1234",
+    precios:[{tipo:"Corte",precio:8000},{tipo:"Corte + Barba",precio:12000},{tipo:"Barba",precio:5000},{tipo:"Otro",precio:0}],
+    productos:[
+      {id:pid(),nombre:"Cera para pelo",cat:"Peinado",costo:2500,precio:5000,cargado:10,min:3},
+      {id:pid(),nombre:"Perfume",cat:"Perfumería",costo:5000,precio:9000,cargado:6,min:2},
+      {id:pid(),nombre:"Aftershave",cat:"Cuidado",costo:1800,precio:3500,cargado:8,min:3},
+    ],
+    servicios:[],
+    ventas:[],
+    gastos:[],
+    turnos:[],
+    cierres:[],
+  };
+}
+function pid(){return Math.random().toString(36).slice(2,9);}
+
+/* ---------- state ---------- */
+const S={profile:null,ownerUnlocked:false,tab:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today()};
+const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
+let DB=null;
+
+function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
+function load(){try{const r=localStorage.getItem(KEY);if(r)return JSON.parse(r);}catch(e){}return null;}
+
+/* ---------- derived ---------- */
+const money=n=>"$"+Math.round(n||0).toLocaleString("es-AR");
+const monthOf=d=>(d||"").slice(0,7);
+const sumBy=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+const CURM=today().slice(0,7);
+function precioDe(tipo){const p=DB.precios.find(x=>x.tipo===tipo);return p?p.precio:0;}
+function comDe(barbero){const b=DB.barberos.find(x=>x.n===barbero);return b?b.com:0.5;}
+function servDeBarbero(b){return DB.servicios.filter(s=>s.barbero===b);}
+function factBarbero(b){return sumBy(servDeBarbero(b),s=>s.precio);}
+function comBarbero(b){return sumBy(servDeBarbero(b),s=>s.comBarbero);}
+function months(){const set=new Set();DB.servicios.forEach(s=>set.add(s.mes));DB.ventas.forEach(v=>set.add(v.mes));DB.gastos.forEach(g=>set.add(monthOf(g.fecha)));if(!set.size)set.add(CURM);return[...set].sort();}
+const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const mLbl=m=>MN[+m.slice(5,7)-1]||m.slice(5);
+function ingMes(m){return sumBy(DB.servicios.filter(s=>s.mes===m),s=>s.precio)+sumBy(DB.ventas.filter(v=>v.mes===m),v=>v.total);}
+function gananciaMes(m){return sumBy(DB.servicios.filter(s=>s.mes===m),s=>s.comBarberia)+sumBy(DB.ventas.filter(v=>v.mes===m),v=>v.margen)-sumBy(DB.gastos.filter(g=>monthOf(g.fecha)===m),g=>g.monto);}
+function comisMes(m){return sumBy(DB.servicios.filter(s=>s.mes===m),s=>s.comBarbero);}
+function stockActual(p){const vend=sumBy(DB.ventas.filter(v=>v.producto===p.nombre),v=>v.cant);return p.cargado-vend;}
+
+/* ---------- cierre diario (caja) ---------- */
+function serviciosDia(fecha){return DB.servicios.filter(s=>s.fecha===fecha);}
+function ventasDia(fecha){return DB.ventas.filter(v=>v.fecha===fecha);}
+function gastosDia(fecha){return DB.gastos.filter(g=>g.fecha===fecha);}
+function cierreExistente(fecha){return DB.cierres.find(c=>c.fecha===fecha)||null;}
+function calcularCierre(fecha){
+  const servicios=serviciosDia(fecha),ventas=ventasDia(fecha),gastos=gastosDia(fecha);
+  const facturadoCortes=sumBy(servicios,s=>s.precio);
+  const facturadoProd=sumBy(ventas,v=>v.total);
+  const facturadoTotal=facturadoCortes+facturadoProd;
+  const gastosTotal=sumBy(gastos,g=>g.monto);
+  const comisionesTotal=sumBy(servicios,s=>s.comBarbero);
+  const gananciaNeta=facturadoTotal-comisionesTotal-gastosTotal;
+  const porMedio={};
+  PAGOS.forEach(m=>{
+    const ing=sumBy(servicios.filter(s=>(s.pago||"Efectivo")===m),s=>s.precio)+sumBy(ventas.filter(v=>(v.pago||"Efectivo")===m),v=>v.total);
+    const egr=sumBy(gastos.filter(g=>(g.pago||"Efectivo")===m),g=>g.monto);
+    porMedio[m]={ingresos:ing,egresos:egr,neto:ing-egr};
+  });
+  const porBarbero=DB.barberos.map(b=>{
+    const list=servicios.filter(s=>s.barbero===b.n);
+    return {barbero:b.n,cortes:list.length,facturado:sumBy(list,s=>s.precio),comision:sumBy(list,s=>s.comBarbero)};
+  }).filter(x=>x.cortes>0);
+  return {cortes:servicios.length,facturadoCortes,ventasCant:ventas.length,facturadoProd,facturadoTotal,gastosTotal,comisionesTotal,gananciaNeta,porMedio,porBarbero};
+}
+function cerrarDia(fecha){
+  const servicios=JSON.parse(JSON.stringify(serviciosDia(fecha)));
+  const ventas=JSON.parse(JSON.stringify(ventasDia(fecha)));
+  const gastos=JSON.parse(JSON.stringify(gastosDia(fecha)));
+  const totales=calcularCierre(fecha);
+  const nuevo={id:pid(),fecha,cerradoEn:new Date().toISOString(),cerradoPor:S.profile.type==="owner"?"Dueño":S.profile.name,servicios,ventas,gastos,totales};
+  DB.cierres=DB.cierres.filter(c=>c.fecha!==fecha);
+  DB.cierres.push(nuevo);
+  DB.cierres.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  commit("Día cerrado ✓ — registro guardado");
+}
+function fmtHora(iso){try{const d=new Date(iso);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}catch(e){return "";}}
+
+/* ---------- exportar CSV (para Excel, separador ; y con tildes) ---------- */
+function csvCell(v){const s=String(v==null?"":v);return /[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function toCSV(headers,rows){const lines=[headers.map(csvCell).join(";")];rows.forEach(r=>lines.push(r.map(csvCell).join(";")));return "﻿"+lines.join("\r\n");}
+function descargarCSV(filename,headers,rows){
+  const csv=toCSV(headers,rows);
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  toast("CSV descargado ✓");
+}
+function slugNombre(){return (DB.nombre||"barberia").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||"barberia";}
+function descargarCierresCSV(){
+  if(!DB.cierres.length)return toast("Todavía no cerraste ningún día");
+  const headers=["Fecha","Cortes","Ventas productos","Facturado cortes","Facturado productos","Facturado total","Gastos","Comisiones","Ganancia neta",...PAGOS.map(m=>"Neto "+m),"Cerrado por","Hora de cierre"];
+  const rows=[...DB.cierres].sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(c=>{
+    const t=c.totales;
+    return [fdate(c.fecha),t.cortes,t.ventasCant,t.facturadoCortes,t.facturadoProd,t.facturadoTotal,t.gastosTotal,t.comisionesTotal,t.gananciaNeta,...PAGOS.map(m=>t.porMedio[m]?t.porMedio[m].neto:0),c.cerradoPor,fmtHora(c.cerradoEn)];
+  });
+  descargarCSV(slugNombre()+"-cierres-"+today()+".csv",headers,rows);
+}
+
+/* ---------- helpers ---------- */
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function fdate(iso){if(!iso)return "—";const p=iso.split("-");return p.length===3?p[2]+"/"+p[1]:iso;}
+function today(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+const AVCOL=["#CE9E3B","#B98A55","#A9743E","#8E6BA0","#5E8AA8"];
+const avcol=n=>AVCOL[[...String(n)].reduce((a,c)=>a+c.charCodeAt(0),0)%AVCOL.length];
+// avatar: si hay foto, la muestra; si no, la inicial con color. Mismo look en todos lados.
+function avatarHTML(nombre,foto,cls){
+  if(foto)return `<img class="${cls}" src="${foto}" style="object-fit:cover;display:block">`;
+  return `<span class="${cls}" style="background:${avcol(nombre)}">${esc((nombre[0]||"?").toUpperCase())}</span>`;
+}
+// lee un archivo de imagen, lo redimensiona/comprime y devuelve un dataURL chico (liviano para localStorage)
+function leerFotoComoDataURL(file,maxSize,cb){
+  if(!file)return;
+  if(!file.type||!file.type.startsWith("image/"))return toast("Elegí un archivo de imagen");
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>h){if(w>maxSize){h=Math.round(h*maxSize/w);w=maxSize;}}
+      else{if(h>maxSize){w=Math.round(w*maxSize/h);h=maxSize;}}
+      const canvas=document.createElement("canvas");
+      canvas.width=w;canvas.height=h;
+      canvas.getContext("2d").drawImage(img,0,0,w,h);
+      cb(canvas.toDataURL("image/jpeg",0.85));
+    };
+    img.onerror=()=>toast("No se pudo leer esa imagen");
+    img.src=e.target.result;
+  };
+  reader.onerror=()=>toast("No se pudo leer el archivo");
+  reader.readAsDataURL(file);
+}
+let toastT;function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1700);}
+function val(s){const e=$(s);return e?String(e.value).trim():"";}
+function num(s){const e=$(s);return e?Math.max(0,+e.value||0):0;}
+function commit(msg){save();paintBrand();render();if(msg)toast(msg);}
+function paintBrand(){
+  document.title=(DB.nombre||"Mi Barbería")+" · Gestión de Barbería";
+  const l=document.getElementById("topbar-logo-img");if(l)l.src=DB.logo||DEFAULT_LOGO;
+  const n=document.getElementById("topbar-name");if(n)n.textContent=DB.nombre||"Mi Barbería";
+}
+
+/* ================= SELECTOR ================= */
+function viewSelect(){
+  return `<div class="selstage fade"><div class="big-logo"><img src="${DB.logo||DEFAULT_LOGO}" alt="Logo"></div>
+    <h2>¿Quién está usando la barbería?</h2><p class="sub">Elegí tu perfil para empezar a cargar.</p>
+    <div class="profgrid">
+      ${DB.barberos.map(b=>`<button class="profcard" data-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
+      <button class="profcard owner" data-owner="1"><span class="pav">🔒</span><b>Dueño</b><small>Requiere clave</small></button>
+    </div></div>`;
+}
+function bindSelect(){
+  document.querySelectorAll("[data-barb]").forEach(b=>b.onclick=()=>{S.profile={type:"barber",name:b.dataset.barb};S.tab="cargar";render();});
+  $("[data-owner]").onclick=()=>{S.pinBuf="";S.pinErr="";S.profile={type:"pin"};render();};
+}
+
+/* ================= PIN ================= */
+function viewPin(){
+  const dots=[0,1,2,3].map(i=>`<span class="pindot ${S.pinErr==="err"?"err":i<S.pinBuf.length?"on":""}"></span>`).join("");
+  const keys=[1,2,3,4,5,6,7,8,9].map(k=>`<button data-k="${k}">${k}</button>`).join("");
+  return `<div class="pinstage fade"><div class="pincard">
+    <div class="lock">🔒</div><h3>Modo Dueño</h3><p>Ingresá tu clave de 4 dígitos</p>
+    <div class="pindots">${dots}</div>
+    <div class="keypad">${keys}<button class="wide" data-k="clear">Borrar</button><button data-k="0">0</button><button class="wide" data-k="del">⌫</button></div>
+    <div class="pinerr">${S.pinErr==="err"?"Clave incorrecta. Probá de nuevo.":""}</div>
+    <button class="pinback" data-back="1">← Volver a perfiles</button>
+  </div></div>`;
+}
+function bindPin(){
+  document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>pinPress(b.dataset.k));
+  $("[data-back]").onclick=()=>{S.profile=null;render();};
+}
+function pinPress(k){
+  if(k==="del")S.pinBuf=S.pinBuf.slice(0,-1);
+  else if(k==="clear")S.pinBuf="";
+  else if(S.pinBuf.length<4)S.pinBuf+=k;
+  S.pinErr="";
+  if(S.pinBuf.length===4){
+    if(S.pinBuf===DB.pin){S.profile={type:"owner"};S.ownerUnlocked=true;S.tab="panel";render();return;}
+    else{S.pinErr="err";S.pinBuf="";render();setTimeout(()=>{S.pinErr="";render();},700);return;}
+  }
+  render();
+}
+// permite tipear el PIN con el teclado físico (números, Backspace, Escape)
+document.addEventListener("keydown",e=>{
+  if(!S.profile||S.profile.type!=="pin")return;
+  if(e.key>="0"&&e.key<="9"){pinPress(e.key);}
+  else if(e.key==="Backspace"){pinPress("del");}
+  else if(e.key==="Escape"){pinPress("clear");}
+});
+
+/* ================= WHO SLOT ================= */
+function renderWho(){
+  const slot=$("#whoslot");
+  if(!S.profile||S.profile.type==="pin"){slot.innerHTML="";return;}
+  const isOwner=S.profile.type==="owner";
+  const name=isOwner?"Dueño":S.profile.name;
+  const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
+  slot.innerHTML=`<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">Cambiar</button></div>`;
+  $("#swapbtn").onclick=()=>{S.profile=null;S.ownerUnlocked=false;render();};
+}
+
+/* ================= APP SHELL ================= */
+const BARB_NAV=[["cargar","✂","Cargar"],["mishist","📋","Mi historial"],["miscom","％","Mis comisiones"],["miagenda","🗓","Mi agenda"]];
+const OWNER_NAV=[
+  ["panel","◧","Panel"],["cargar","✂","Cargar"],["servicios","📋","Servicios"],["graficos","◔","Gráficos"],
+  ["agenda","🗓","Agenda"],["cierre","🧾","Cierre diario"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
+  ["gastos","⬇","Gastos y sueldos"],["stock","◭","Stock / Productos"],["config","⚙","Configuración"]];
+function viewApp(){
+  const isOwner=S.profile.type==="owner";
+  const nav=isOwner?OWNER_NAV:BARB_NAV;
+  if(!nav.find(n=>n[0]===S.tab))S.tab=nav[0][0];
+  const navHTML=nav.map(n=>`<button class="navitem ${S.tab===n[0]?"on":""}" data-tab="${n[0]}"><span class="gi">${n[1]}</span>${n[2]}</button>`).join("");
+  return `<div class="app fade"><aside class="side">${isOwner?'<div class="sect">Modo Dueño 🔒</div>':'<div class="sect">Barbero</div>'}${navHTML}</aside><div class="main">${renderTab()}</div></div>`;
+}
+function renderTab(){
+  const isOwner=S.profile.type==="owner";
+  const R=isOwner
+    ?{panel:tPanel,cargar:tCargar,servicios:tServicios,graficos:tGraficos,agenda:tAgenda,cierre:tCierre,barberos:tBarberos,precios:tPrecios,gastos:tGastos,stock:tStock,config:tConfig}
+    :{cargar:tCargar,mishist:tMisHist,miscom:tMisCom,miagenda:tMiAgenda};
+  return (R[S.tab]||tCargar)();
+}
+function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p></div>${owner?'<span class="ownerband">🔒 Solo dueño</span>':""}</div>`;}
+function curBarbero(){return S.profile.type==="barber"?S.profile.name:null;}
+
+/* ================= CARGAR (barbero + dueño) ================= */
+function tCargar(){
+  const isOwner=S.profile.type==="owner";
+  const who=isOwner?"":`<b>${esc(S.profile.name)}</b> · `;
+  const seg=`<div class="seg"><button class="${S.loadType==="servicio"?"sel":""}" data-lt="servicio">✂ Corte / Servicio</button><button class="${S.loadType==="producto"?"sel":""}" data-lt="producto">🛍 Producto</button></div>`;
+  let form;
+  if(S.loadType==="servicio"){
+    const chips=DB.precios.map(p=>`<button class="chip" data-tipo="${esc(p.tipo)}"><span>${esc(p.tipo)}</span><small>${p.precio>0?money(p.precio):"a definir"}</small></button>`).join("");
+    form=`<div class="bigform">
+      <div class="bf"><label>Tipo de corte / servicio</label><div class="chips" id="tipo-chips">${chips}</div></div>
+      ${isOwner?`<div class="bf"><label>¿Qué barbero lo hizo?</label><select id="c-barb">${DB.barberos.map(b=>`<option>${esc(b.n)}</option>`).join("")}</select></div>`:""}
+      <div class="bf-row">
+        <div class="bf"><label>Precio${isOwner?"":" 🔒 fijado por el dueño"}</label><input type="number" id="c-precio" value="0" min="0" ${isOwner?"":"readonly"}><span class="hint" id="price-hint"></span></div>
+        <div class="bf"><label>Fecha</label><input type="date" id="c-fecha" value="${today()}"></div>
+        <div class="bf"><label>Hora</label><input type="time" id="c-hora" value="${nowTime()}"></div>
+      </div>
+      <div class="bf"><label>Cliente / Nota (opcional)</label><input id="c-desc" placeholder="Ej: Juan Pérez, o algo que te ayude a recordar"></div>
+      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="c-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      <button class="cargar" id="c-add">✓ Cargar corte</button>
+    </div>`;
+  }else{
+    form=`<div class="bigform">
+      <div class="bf"><label>Producto</label><select id="p-prod">${DB.productos.map(p=>`<option value="${esc(p.nombre)}" data-precio="${p.precio}">${esc(p.nombre)} · ${money(p.precio)} (stock ${stockActual(p)})</option>`).join("")}</select></div>
+      ${isOwner?`<div class="bf"><label>¿Qué barbero lo vendió?</label><select id="p-barb">${DB.barberos.map(b=>`<option>${esc(b.n)}</option>`).join("")}</select></div>`:""}
+      <div class="bf-row">
+        <div class="bf"><label>Cantidad</label><input type="number" id="p-cant" value="1" min="1"></div>
+        <div class="bf"><label>Precio unitario</label><input type="number" id="p-precio" value="${DB.productos[0]?DB.productos[0].precio:0}" min="0"></div>
+        <div class="bf"><label>Fecha</label><input type="date" id="p-fecha" value="${today()}"></div>
+      </div>
+      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="p-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      <button class="cargar" id="p-add">✓ Cargar venta</button>
+    </div>`;
+  }
+  return head("Cargar","Rápido: "+who+"elegí y tocá Cargar.")+seg+form;
+}
+function bindCargar(){
+  document.querySelectorAll("[data-lt]").forEach(b=>b.onclick=()=>{S.loadType=b.dataset.lt;render();});
+  // service chips
+  document.querySelectorAll("[data-tipo]").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll("[data-tipo]").forEach(x=>x.classList.remove("sel"));b.classList.add("sel");
+    const t=b.dataset.tipo, pr=precioDe(t);
+    const isOwner=S.profile.type==="owner";
+    const pinput=$("#c-precio");
+    pinput.value=pr;
+    const libre=t==="Otro"||pr===0;
+    // los barberos solo pueden escribir el precio a mano si es un servicio "Otro" sin precio fijo
+    pinput.readOnly=isOwner?false:!libre;
+    $("#price-hint").textContent=libre?"Escribí el precio":"";
+    b.dataset._sel="1";
+  });
+  const ca=$("#c-add");if(ca)ca.onclick=()=>{
+    const sel=$("[data-tipo].sel");if(!sel)return toast("Elegí el tipo de corte");
+    const tipo=sel.dataset.tipo, precio=num("#c-precio");
+    if(precio<=0)return toast("Poné un precio");
+    const barbero=$("#c-barb")?val("#c-barb"):S.profile.name;
+    const com=comDe(barbero);
+    DB.servicios.push({id:pid(),fecha:val("#c-fecha"),hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),pago:val("#c-pago")||"Efectivo",comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(val("#c-fecha"))});
+    commit("Corte cargado ✓  ("+esc(barbero)+")");
+  };
+  const psel=$("#p-prod");if(psel)psel.onchange=()=>{const o=psel.selectedOptions[0];if(o&&o.dataset.precio)$("#p-precio").value=o.dataset.precio;};
+  const pa=$("#p-add");if(pa)pa.onclick=()=>{
+    const nombre=val("#p-prod"), prod=DB.productos.find(p=>p.nombre===nombre);
+    const cant=num("#p-cant")||1, precioU=num("#p-precio"), costoU=prod?prod.costo:0;
+    if(precioU<=0)return toast("Poné un precio");
+    const barbero=$("#p-barb")?val("#p-barb"):S.profile.name;
+    DB.ventas.push({id:pid(),fecha:val("#p-fecha"),barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),pago:val("#p-pago")||"Efectivo",mes:monthOf(val("#p-fecha"))});
+    commit("Venta cargada ✓");
+  };
+}
+
+/* ================= BARBERO: mi historial / comisiones / agenda ================= */
+function tMisHist(){
+  const b=curBarbero();
+  const desde=S.mhDesde,hasta=S.mhHasta,tipo=S.mhTipo||"todos",pago=S.mhPago||"todos";
+  const activo=desde||hasta||tipo!=="todos"||pago!=="todos";
+  const list=servDeBarbero(b).filter(s=>(!desde||s.fecha>=desde)&&(!hasta||s.fecha<=hasta)&&(tipo==="todos"||s.tipo===tipo)&&(pago==="todos"||(s.pago||"Efectivo")===pago)).slice().sort((a,c)=>c.fecha.localeCompare(a.fecha));
+  const ventas=DB.ventas.filter(v=>v.barbero===b);
+  const filtro=`<div class="card"><h3>Filtrar</h3>
+    <div class="addform" style="margin-bottom:0">
+      <div class="ff"><label>Servicio</label><select id="mh-tipo"><option value="todos" ${tipo==="todos"?"selected":""}>Todos</option>${DB.precios.map(p=>`<option ${tipo===p.tipo?"selected":""}>${esc(p.tipo)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Pago</label><select id="mh-pago"><option value="todos" ${pago==="todos"?"selected":""}>Todos</option>${PAGOS.map(m=>`<option ${pago===m?"selected":""}>${esc(m)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Desde</label><input type="date" id="mh-desde" value="${desde}"></div>
+      <div class="ff"><label>Hasta</label><input type="date" id="mh-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="mh-filtrar">Filtrar</button>
+      <button class="tbtn" id="mh-limpiar" style="padding:11px 16px">Ver todo</button>
+    </div></div>`;
+  const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">${activo?"Sin cortes con este filtro.":'Todavía no cargaste cortes. Andá a "Cargar" ✂'}</div></td></tr>`;
+  return head("Mi historial","Tus cortes y ventas, "+esc(b)+".")
+  +`<div class="kpis">${kpi("Mis cortes",list.length,"total")}${kpi("Facturé",money(sumBy(list,s=>s.precio)),"en cortes")}${kpi("Mis ventas prod.",ventas.length,money(sumBy(ventas,v=>v.total)))}${kpi("Mi comisión",money(sumBy(list,s=>s.comBarbero)),"acumulada",1)}</div>`
+  +filtro+`<div class="card fade"><h3>Mis cortes</h3><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Mi comisión</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+function bindMisHist(){
+  const f=$("#mh-filtrar");if(f)f.onclick=()=>{S.mhDesde=val("#mh-desde")||"";S.mhHasta=val("#mh-hasta")||"";S.mhTipo=val("#mh-tipo")||"todos";S.mhPago=val("#mh-pago")||"todos";render();};
+  const l=$("#mh-limpiar");if(l)l.onclick=()=>{S.mhDesde="";S.mhHasta="";S.mhTipo="todos";S.mhPago="todos";render();};
+}function tMisCom(){
+  const b=curBarbero();
+  const desde=S.comDesde,hasta=S.comHasta;
+  const filtro=`<div class="card"><h3>Filtrar por fecha</h3><div class="sub">Para ver lo que te toca cobrar en un rango puntual (por día, semana, quincena, lo que necesites)</div>
+    <div class="addform" style="margin-bottom:0">
+      <div class="ff"><label>Desde</label><input type="date" id="cm-desde" value="${desde}"></div>
+      <div class="ff"><label>Hasta</label><input type="date" id="cm-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="cm-filtrar">Filtrar</button>
+      <button class="tbtn" id="cm-limpiar" style="padding:11px 16px">Ver todo</button>
+    </div></div>`;
+  let rango="";
+  if(desde||hasta){
+    const list=DB.servicios.filter(s=>s.barbero===b&&(!desde||s.fecha>=desde)&&(!hasta||s.fecha<=hasta)).sort((x,y)=>(y.fecha+(y.hora||"")).localeCompare(x.fecha+(x.hora||"")));
+    const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}</td><td class="num">${money(s.precio)}</td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="5"><div class="empty">Sin cortes en este rango.</div></td></tr>`;
+    rango=`<div class="card"><h3>Resultado del rango elegido</h3><div class="kpis" style="margin-bottom:14px">${kpi("Cortes",list.length,"en el rango")}${kpi("Facturado",money(sumBy(list,s=>s.precio)),"en el rango")}${kpi("Comisión a cobrar",money(sumBy(list,s=>s.comBarbero)),"en el rango",1)}</div><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Servicio</th><th class="num">Precio</th><th class="num">Comisión</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+  const ms=months();
+  const rows=ms.map(m=>{const list=DB.servicios.filter(s=>s.barbero===b&&s.mes===m);return `<tr><td>${mLbl(m)} ${m.slice(0,4)}</td><td class="num">${list.length}</td><td class="num">${money(sumBy(list,s=>s.precio))}</td><td class="num" style="font-weight:700;color:var(--accent-ink)">${money(sumBy(list,s=>s.comBarbero))}</td></tr>`;}).join("");
+  return head("Mis comisiones","Cuánto ganaste, mes a mes o en el rango de fecha que quieras.")
+  +filtro+rango
+  +`<div class="card"><h3>Por mes</h3><div class="tbl-wrap"><table><thead><tr><th>Mes</th><th class="num">Cortes</th><th class="num">Facturado</th><th class="num">Mi comisión</th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Total acumulado</span><b class="tnum">${money(comBarbero(b))}</b></div></div>`;
+}
+function bindMisCom(){
+  const f=$("#cm-filtrar");if(f)f.onclick=()=>{S.comDesde=val("#cm-desde")||"";S.comHasta=val("#cm-hasta")||"";render();};
+  const l=$("#cm-limpiar");if(l)l.onclick=()=>{S.comDesde="";S.comHasta="";render();};
+}
+function shiftDate(iso,delta){const d=new Date(iso+"T00:00:00");d.setDate(d.getDate()+delta);return d.toISOString().slice(0,10);}
+function fdateLong(iso){const d=new Date(iso+"T00:00:00");return d.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"});}
+function dateNav(){
+  const f=S.agendaFecha;
+  const esHoy=f===today();
+  return `<div class="datenav">
+    <button data-dnav="-1" title="Día anterior">‹</button>
+    <span class="lbl">${esc(fdateLong(f))}${esHoy?' <span class="today">HOY</span>':""}</span>
+    <button data-dnav="1" title="Día siguiente">›</button>
+    ${esHoy?"":'<button class="today" data-dnav="hoy" style="height:34px">Volver a hoy</button>'}
+  </div>`;
+}
+function overlaps(list){
+  // marca los turnos que comparten fecha+hora+barbero con algún otro
+  const key=t=>t.fecha+"|"+t.hora+"|"+t.barbero;
+  const counts={};list.forEach(t=>{const k=key(t);counts[k]=(counts[k]||0)+1;});
+  return new Set(list.filter(t=>counts[key(t)]>1).map(t=>t.id));
+}
+function tMiAgenda(){
+  const b=curBarbero();
+  const list=DB.turnos.filter(t=>t.barbero===b&&t.fecha===S.agendaFecha).slice().sort((a,c)=>a.hora.localeCompare(c.hora));
+  return head("Mi agenda","Los turnos del día que elegiste abajo. Al otro día arranca de 0 sola.")+dateNav()+agendaForm(b)+agendaTable(list,false);
+}
+function agendaForm(fixedBarbero){
+  return `<div class="addform">
+    <div class="ff"><label>Fecha</label><input type="date" id="t-fecha" value="${S.agendaFecha}"></div>
+    <div class="ff"><label>Hora</label><input type="time" id="t-hora" value="10:00"></div>
+    <div class="ff grow"><label>Cliente</label><input id="t-cli" placeholder="Nombre"></div>
+    <div class="ff"><label>Servicio</label><select id="t-serv">${DB.precios.map(p=>`<option>${esc(p.tipo)}</option>`).join("")}</select></div>
+    ${fixedBarbero?`<input type="hidden" id="t-barb" value="${esc(fixedBarbero)}">`:`<div class="ff"><label>Barbero</label><select id="t-barb">${DB.barberos.map(b=>`<option>${esc(b.n)}</option>`).join("")}</select></div>`}
+    <button class="addbtn" id="t-add">＋ Agendar</button>
+  </div>`;
+}
+function agendaTable(list,showBarb){
+  const solap=overlaps(list);
+  const rows=list.length?list.map(t=>`<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}</td><td><button class="pill ${t.estado==="done"?"done":"pend"}" data-tg="${t.id}" style="border:0;cursor:pointer">${t.estado==="done"?"Atendido":"Pendiente"}</button></td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
+  return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+function bindAgenda(){
+  document.querySelectorAll("[data-dnav]").forEach(b=>b.onclick=()=>{
+    const d=b.dataset.dnav;
+    S.agendaFecha=d==="hoy"?today():shiftDate(S.agendaFecha,+d);
+    render();
+  });
+  const a=$("#t-add");if(a)a.onclick=()=>{
+    const fecha=val("#t-fecha"),hora=val("#t-hora"),barbero=val("#t-barb"),cli=val("#t-cli")||"Cliente";
+    const choque=DB.turnos.find(t=>t.fecha===fecha&&t.hora===hora&&t.barbero===barbero);
+    if(choque&&!confirm("⚠ "+esc(barbero)+" ya tiene un turno ese día a las "+hora+" (con "+esc(choque.cliente)+").\n\n¿Agendar igual?"))return;
+    DB.turnos.push({id:pid(),fecha,hora,barbero,cliente:cli,servicio:val("#t-serv"),estado:"pend"});
+    S.agendaFecha=fecha;
+    commit("Turno agendado ✓");
+  };
+  document.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{const t=DB.turnos.find(x=>x.id===b.dataset.tg);t.estado=t.estado==="done"?"pend":"done";commit("");});
+  document.querySelectorAll("[data-delt]").forEach(b=>b.onclick=()=>{DB.turnos=DB.turnos.filter(x=>x.id!==b.dataset.delt);commit("Eliminado");});
+}
+
+/* ================= OWNER: panel ================= */
+function tPanel(){
+  const fact=ingMes(CURM), gan=gananciaMes(CURM), com=comisMes(CURM);
+  const top=DB.barberos.map(b=>({n:b.n,f:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&s.mes===CURM),s=>s.precio)})).sort((a,b)=>b.f-a.f)[0];
+  const alert=DB.productos.filter(p=>stockActual(p)<p.min).length;
+  const hoyPendiente=!cierreExistente(today())&&(serviciosDia(today()).length||ventasDia(today()).length||gastosDia(today()).length);
+  return head("Panel","Los números del mes de un vistazo.",true)
+  +(hoyPendiente?`<div class="warnbox">📋 Todavía no cerraste el día de hoy. <button data-tab="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
+  +`<div class="kpis">
+    ${kpi("Facturación del mes",money(fact),"cortes + productos")}
+    ${kpi("Ganancia barbería",money(gan),"tras comisiones y gastos",gan>=0?1:2)}
+    ${kpi("Comisiones a pagar",money(com),"a los barberos")}
+    ${kpi("Barbero top",top&&top.f?esc(top.n):"—",top&&top.f?money(top.f):"sin datos")}
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Facturación por barbero</h3><div class="sub">Cortes de este mes</div>${barberoBars(CURM)}</div>
+    <div class="card"><h3>Ingresos por mes</h3><div class="sub">Cortes + productos</div>${mesChart("todos")}</div>
+  </div>
+  ${alert?`<div class="card"><h3>⚠ Stock a reponer</h3><div class="sub">${alert} producto(s) bajo el mínimo</div>${DB.productos.filter(p=>stockActual(p)<p.min).map(p=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${esc(p.nombre)}</span><span class="pill rep">${stockActual(p)} / mín ${p.min}</span></div>`).join("")}</div>`:""}`;
+}
+function kpi(l,v,d,tone){const c=tone===1?"up-c":tone===2?"dn-c":"";return `<div class="kpi"><div class="lbl">${l}</div><div class="val tnum">${v}</div><div class="delta ${c}">${d||""}</div></div>`;}
+function barberoBars(m){const data=DB.barberos.map(b=>({n:b.n,v:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&(!m||s.mes===m)),s=>s.precio)}));const max=Math.max(1,...data.map(d=>d.v));return `<div class="chart">${data.map(d=>`<div class="barcol"><span class="bv">${d.v?money(d.v):""}</span><div class="barwrap"><div class="bar i" style="height:${d.v/max*100}%"></div></div><small>${esc(d.n)}</small></div>`).join("")}</div>`;}
+function mesChart(filterB){const ms=months().slice(-5);const rows=ms.map(m=>{let ing;if(filterB==="todos")ing=ingMes(m);else ing=sumBy(DB.servicios.filter(s=>s.mes===m&&s.barbero===filterB),s=>s.precio)+sumBy(DB.ventas.filter(v=>v.mes===m&&v.barbero===filterB),v=>v.total);const eg=filterB==="todos"?sumBy(DB.gastos.filter(g=>monthOf(g.fecha)===m),g=>g.monto):0;return{m,ing,eg};});const max=Math.max(1,...rows.flatMap(r=>[r.ing,r.eg]));return `<div class="chart">${rows.map(r=>`<div class="barcol"><div class="barwrap"><div class="bar i" style="height:${r.ing/max*100}%"></div>${filterB==="todos"?`<div class="bar e" style="height:${r.eg/max*100}%"></div>`:""}</div><small>${mLbl(r.m)}</small></div>`).join("")}</div>${filterB==="todos"?`<div class="legend"><span><i style="background:var(--accent)"></i>Ingresos</span><span><i style="background:var(--panel-3);border:1px solid var(--line)"></i>Gastos</span></div>`:""}`;}
+
+/* ================= OWNER: servicios (todos) ================= */
+function tServicios(){
+  const desde=S.svDesde,hasta=S.svHasta,barb=S.svBarb||"todos",tipo=S.svTipo||"todos",pago=S.svPago||"todos";
+  const activo=desde||hasta||barb!=="todos"||tipo!=="todos"||pago!=="todos";
+  const all=DB.servicios.filter(s=>(!desde||s.fecha>=desde)&&(!hasta||s.fecha<=hasta)&&(barb==="todos"||s.barbero===barb)&&(tipo==="todos"||s.tipo===tipo)&&(pago==="todos"||(s.pago||"Efectivo")===pago));
+  const list=all.slice().sort((a,b)=>(b.fecha+(b.hora||"")).localeCompare(a.fecha+(a.hora||"")));
+  const filtro=`<div class="card"><h3>Filtrar</h3><div class="sub">Combiná los filtros que necesites</div>
+    <div class="addform" style="margin-bottom:0">
+      <div class="ff"><label>Barbero</label><select id="sv-barb"><option value="todos" ${barb==="todos"?"selected":""}>Todos</option>${DB.barberos.map(b=>`<option ${barb===b.n?"selected":""}>${esc(b.n)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Servicio</label><select id="sv-tipo"><option value="todos" ${tipo==="todos"?"selected":""}>Todos</option>${DB.precios.map(p=>`<option ${tipo===p.tipo?"selected":""}>${esc(p.tipo)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Pago</label><select id="sv-pago"><option value="todos" ${pago==="todos"?"selected":""}>Todos</option>${PAGOS.map(m=>`<option ${pago===m?"selected":""}>${esc(m)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Desde</label><input type="date" id="sv-desde" value="${desde}"></div>
+      <div class="ff"><label>Hasta</label><input type="date" id="sv-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="sv-filtrar">Filtrar</button>
+      <button class="tbtn" id="sv-limpiar" style="padding:11px 16px">Ver todo</button>
+    </div></div>`;
+  const rows=list.length?list.map(s=>{const bo=DB.barberos.find(x=>x.n===s.barbero);return `<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${avatarHTML(s.barbero,bo&&bo.foto,"av-sm")}${esc(s.barbero)}</td><td>${esc(s.tipo)}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td><td class="num">${money(s.comBarberia)}</td><td><button class="del" data-dels="${s.id}">✕</button></td></tr>`;}).join(""):`<tr><td colspan="10"><div class="empty">Sin servicios ${activo?"con este filtro":"cargados"}.</div></td></tr>`;
+  return head("Servicios","Todos los cortes cargados por el equipo.",true)
+  +filtro+`<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Barbero</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Com. barbero</th><th class="num">Com. barbería</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Total facturado ${activo?"con este filtro":"en cortes"}</span><b class="tnum">${money(sumBy(list,s=>s.precio))}</b></div></div>`;
+}
+function bindServicios(){
+  const f=$("#sv-filtrar");if(f)f.onclick=()=>{S.svDesde=val("#sv-desde")||"";S.svHasta=val("#sv-hasta")||"";S.svBarb=val("#sv-barb")||"todos";S.svTipo=val("#sv-tipo")||"todos";S.svPago=val("#sv-pago")||"todos";render();};
+  const l=$("#sv-limpiar");if(l)l.onclick=()=>{S.svDesde="";S.svHasta="";S.svBarb="todos";S.svTipo="todos";S.svPago="todos";render();};
+}
+/* ================= OWNER: graficos ================= */
+function tGraficos(){
+  const opts=`<select id="gb-sel" class="miniin" style="width:auto;text-align:left"><option value="todos" ${S.graphB==="todos"?"selected":""}>Todos combinados</option>${DB.barberos.map(b=>`<option ${S.graphB===b.n?"selected":""}>${esc(b.n)}</option>`).join("")}</select>`;
+  const byServ={};DB.servicios.forEach(s=>{if(S.graphB==="todos"||s.barbero===S.graphB)byServ[s.tipo]=(byServ[s.tipo]||0)+s.precio;});
+  const se=Object.entries(byServ).sort((a,b)=>b[1]-a[1]);const smax=Math.max(1,...se.map(x=>x[1]));
+  return head("Gráficos","Comparalos entre sí o miralos combinados.",true)
+  +`<div class="card"><h3>Ver 👁 ${opts}</h3><div class="sub">Filtrá por barbero o mirá todo junto</div></div>
+  <div class="grid2">
+    <div class="card"><h3>Facturación por barbero</h3><div class="sub">Acumulado (todos los meses)</div>${barberoBars(null)}</div>
+    <div class="card"><h3>Ingresos por mes</h3><div class="sub">${S.graphB==="todos"?"Cortes + productos, con gastos":esc(S.graphB)}</div>${mesChart(S.graphB)}</div>
+  </div>
+  <div class="card"><h3>Facturación por tipo de servicio</h3><div class="sub">${S.graphB==="todos"?"Todos los barberos":esc(S.graphB)}</div>${se.length?se.map(([n,v])=>`<div class="hbar"><div class="hl"><span>${esc(n)}</span><b class="tnum">${money(v)}</b></div><div class="ht"><div class="hf" style="width:${v/smax*100}%"></div></div></div>`).join(""):'<div class="empty">Sin datos.</div>'}</div>`;
+}
+function bindGraficos(){const s=$("#gb-sel");if(s)s.onchange=()=>{S.graphB=s.value;render();};}
+
+/* ================= OWNER: agenda completa ================= */
+function tAgenda(){
+  const list=DB.turnos.filter(t=>t.fecha===S.agendaFecha).slice().sort((a,b)=>a.hora.localeCompare(b.hora));
+  return head("Agenda","Turnos del día que elegiste. Al otro día arranca de 0 sola — no hace falta borrar nada a mano.",true)+dateNav()+agendaForm(null)+agendaTable(list,true);
+}
+
+/* ================= OWNER: cierre diario (caja) ================= */
+function cierreDateNav(){
+  const f=S.cierreFecha;
+  const esHoy=f===today();
+  return `<div class="datenav">
+    <button data-cnav="-1" title="Día anterior">‹</button>
+    <span class="lbl">${esc(fdateLong(f))}${esHoy?' <span class="today">HOY</span>':""}</span>
+    <button data-cnav="1" title="Día siguiente">›</button>
+    ${esHoy?"":'<button class="today" data-cnav="hoy" style="height:34px">Volver a hoy</button>'}
+  </div>`;
+}
+function viewCierreTotales(t){
+  const medioRows=PAGOS.map(m=>{
+    const x=t.porMedio[m];
+    if(!x||(!x.ingresos&&!x.egresos))return "";
+    return `<div class="perm-row"><span class="pn">${esc(m)}</span><div style="display:flex;gap:16px;align-items:center"><span style="color:var(--ink-3);font-size:12.5px">+${money(x.ingresos)} / −${money(x.egresos)}</span><b class="tnum" style="font-size:15px;color:${x.neto>=0?"var(--good)":"var(--crit)"}">${money(x.neto)}</b></div></div>`;
+  }).join("");
+  const barbRows=t.porBarbero.length?t.porBarbero.map(b=>`<div class="perm-row"><span class="pn">${esc(b.barbero)}<small>${b.cortes} cortes · facturó ${money(b.facturado)}</small></span><b class="tnum" style="color:var(--accent-ink)">${money(b.comision)}</b></div>`).join(""):'<div class="empty">Sin cortes este día.</div>';
+  return `<div class="kpis">
+    ${kpi("Facturado",money(t.facturadoTotal),t.cortes+" cortes · "+t.ventasCant+" ventas")}
+    ${kpi("Comisiones",money(t.comisionesTotal),"a pagar a barberos")}
+    ${kpi("Gastos",money(t.gastosTotal),"del día")}
+    ${kpi("Ganancia neta",money(t.gananciaNeta),"para la barbería",t.gananciaNeta>=0?1:2)}
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Por medio de pago</h3><div class="sub">Ingresos − egresos = lo que debería sumar o restar en cada medio</div>${medioRows||'<div class="empty">Sin movimientos.</div>'}</div>
+    <div class="card"><h3>Comisiones por barbero</h3>${barbRows}</div>
+  </div>`;
+}
+function tCierre(){
+  const fecha=S.cierreFecha;
+  const existente=cierreExistente(fecha);
+  const t=existente?existente.totales:calcularCierre(fecha);
+  const estadoBadge=existente
+    ?`<span class="ownerband" style="background:var(--good-soft);color:var(--good);border-color:transparent">✅ Cerrado a las ${fmtHora(existente.cerradoEn)} por ${esc(existente.cerradoPor)}</span>`
+    :`<span class="ownerband" style="background:var(--warn-soft,#FBEBD2);color:var(--warn);border-color:transparent">⏳ Todavía no se cerró este día</span>`;
+  const accion=existente
+    ?`<button class="tbtn" id="cierre-rehacer" style="border-color:var(--accent);color:var(--accent-ink)">🔓 Volver a cerrar (actualiza el registro)</button>`
+    :`<button class="cargar" id="cierre-hacer" style="max-width:280px">🔒 Cerrar el día</button>`;
+  const histRows=[...DB.cierres].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,60).map(c=>`<tr><td>${fdate(c.fecha)}</td><td class="num">${c.totales.cortes+c.totales.ventasCant}</td><td class="num">${money(c.totales.facturadoTotal)}</td><td class="num">${money(c.totales.comisionesTotal)}</td><td class="num">${money(c.totales.gastosTotal)}</td><td class="num" style="font-weight:700;color:${c.totales.gananciaNeta>=0?"var(--good)":"var(--crit)"}">${money(c.totales.gananciaNeta)}</td><td>${esc(c.cerradoPor)} · ${fmtHora(c.cerradoEn)}</td><td><button class="tbtn sm" data-vercierre="${c.fecha}">Ver</button></td></tr>`).join("");
+  return head("Cierre diario","Cerrá el día para dejar guardado el registro completo: facturación, comisiones, gastos y caja por medio de pago.",true)
+  +`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">${cierreDateNav()}${estadoBadge}</div></div>`
+  +`<div class="card">${viewCierreTotales(t)}<div style="margin-top:14px">${accion}</div>${existente?'<div class="hint" style="margin-top:10px;color:var(--ink-3);font-size:12px">Si cargaste algo nuevo de este día después de cerrarlo, estos números no se actualizan solos — volvé a cerrar para guardar la versión final.</div>':""}</div>`
+  +`<div class="card fade"><h3>Historial de cierres</h3><div class="sub">Todos los días cerrados hasta ahora</div>${DB.cierres.length?`<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th class="num">Movs.</th><th class="num">Facturado</th><th class="num">Comisiones</th><th class="num">Gastos</th><th class="num">Ganancia</th><th>Cerrado por</th><th></th></tr></thead><tbody>${histRows}</tbody></table></div><button class="savebtn" id="cierre-csv" style="margin-top:14px">⬇ Descargar CSV de cierres</button>`:`<div class="empty">Todavía no cerraste ningún día.</div>`}</div>`;
+}
+function bindCierre(){
+  document.querySelectorAll("[data-cnav]").forEach(b=>b.onclick=()=>{
+    const d=b.dataset.cnav;
+    S.cierreFecha=d==="hoy"?today():shiftDate(S.cierreFecha,+d);
+    render();
+  });
+  const ch=$("#cierre-hacer");if(ch)ch.onclick=()=>{
+    if(confirm("¿Cerrar el día "+fdate(S.cierreFecha)+"? Se va a guardar un registro con la facturación, comisiones y gastos de ese día."))cerrarDia(S.cierreFecha);
+  };
+  const cr=$("#cierre-rehacer");if(cr)cr.onclick=()=>{
+    if(confirm("¿Volver a cerrar "+fdate(S.cierreFecha)+"? Esto reemplaza el registro anterior de ese día con los datos actuales."))cerrarDia(S.cierreFecha);
+  };
+  document.querySelectorAll("[data-vercierre]").forEach(b=>b.onclick=()=>{S.cierreFecha=b.dataset.vercierre;render();});
+  const csv=$("#cierre-csv");if(csv)csv.onclick=()=>descargarCierresCSV();
+}
+
+/* ================= OWNER: barberos y comisiones ================= */
+function tBarberos(){
+  const rows=DB.barberos.map((b,i)=>`<div class="perm-row"><span class="pn"><button class="av-edit" data-fotob="${i}" title="Cambiar foto">${avatarHTML(b.n,b.foto,"av-sm")}<span class="av-edit-badge">📷</span></button>${esc(b.n)}<small>${servDeBarbero(b.n).length} cortes · facturó ${money(factBarbero(b.n))}</small></span><div style="display:flex;align-items:center;gap:6px">${b.foto?`<button class="tbtn" data-fotobclear="${i}" style="padding:6px 10px;font-size:11px">Quitar foto</button>`:""}<input class="miniin" id="com-${i}" type="number" min="0" max="100" value="${Math.round(b.com*100)}" style="width:70px"><span style="font-size:13px;color:var(--ink-3)">% barbero</span><button class="del" data-delb="${esc(b.n)}" title="Eliminar barbero">✕</button></div><input type="file" accept="image/*" id="foto-in-${i}" style="display:none"></div>`).join("");
+  const desde=S.comDesde,hasta=S.comHasta,quien=S.comBarb||"todos";
+  const pagoForm=`<div class="card"><h3>💰 Calcular comisión a pagar</h3><div class="sub">Elegí barbero y rango de fechas — sirve para pagar por día, semana, quincena o el período que uses, no hace falta que sea el mes completo</div>
+    <div class="addform" style="margin-bottom:0">
+      <div class="ff"><label>Barbero</label><select id="pg-barb"><option value="todos" ${quien==="todos"?"selected":""}>Todos</option>${DB.barberos.map(b=>`<option ${quien===b.n?"selected":""}>${esc(b.n)}</option>`).join("")}</select></div>
+      <div class="ff"><label>Desde</label><input type="date" id="pg-desde" value="${desde}"></div>
+      <div class="ff"><label>Hasta</label><input type="date" id="pg-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="pg-calc">Calcular</button>
+    </div></div>`;
+  let pagoResult="";
+  if(desde||hasta){
+    const list=DB.servicios.filter(s=>(quien==="todos"||s.barbero===quien)&&(!desde||s.fecha>=desde)&&(!hasta||s.fecha<=hasta));
+    if(quien==="todos"){
+      const porB=DB.barberos.map(b=>({n:b.n,list:list.filter(s=>s.barbero===b.n)})).filter(x=>x.list.length);
+      pagoResult=`<div class="card"><h3>Comisión a pagar por barbero</h3><div class="sub">${desde?fdate(desde):"…"} → ${hasta?fdate(hasta):"…"}</div>${porB.length?porB.map(x=>`<div class="perm-row"><span class="pn">${esc(x.n)}<small>${x.list.length} cortes · facturó ${money(sumBy(x.list,s=>s.precio))}</small></span><b class="tnum" style="color:var(--accent-ink);font-size:17px">${money(sumBy(x.list,s=>s.comBarbero))}</b></div>`).join(""):'<div class="empty">Sin cortes en este rango.</div>'}<div class="totbar"><span>Total a pagar (todos)</span><b class="tnum">${money(sumBy(list,s=>s.comBarbero))}</b></div></div>`;
+    }else{
+      const rows2=list.slice().sort((a,c)=>(a.fecha+(a.hora||"")).localeCompare(c.fecha+(c.hora||""))).map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}</td><td class="num">${money(s.precio)}</td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join("");
+      pagoResult=`<div class="card"><h3>Comisión a pagar — ${esc(quien)}</h3><div class="sub">${desde?fdate(desde):"…"} → ${hasta?fdate(hasta):"…"}</div><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Servicio</th><th class="num">Precio</th><th class="num">Comisión</th></tr></thead><tbody>${rows2||'<tr><td colspan="5"><div class="empty">Sin cortes en este rango.</div></td></tr>'}</tbody></table></div><div class="totbar"><span>Total a pagar a ${esc(quien)}</span><b class="tnum">${money(sumBy(list,s=>s.comBarbero))}</b></div></div>`;
+    }
+  }
+  return head("Barberos y comisiones","Cambiá el % que se lleva cada barbero. Los cortes ya cargados no cambian.",true)
+  +`<div class="warnbox">💡 <b>Ojo:</b> al cambiar una comisión, solo afecta los cortes <b>nuevos</b>. Los ya cargados mantienen la comisión con la que se registraron.</div>
+  <div class="card"><h3>Comisión por barbero</h3><div class="sub">El resto (100% − comisión) queda para la barbería</div>${rows}<button class="savebtn" id="save-com" style="margin-top:14px">Guardar comisiones</button></div>
+  <div class="card"><h3>Sumar un barbero</h3><div class="addform" style="margin-bottom:0"><div class="ff grow"><label>Nombre</label><input id="nb-nombre" placeholder="Nombre del barbero"></div><div class="ff"><label>Comisión %</label><input type="number" id="nb-com" value="50" min="0" max="100"></div><button class="addbtn" id="nb-add">＋ Sumar</button></div></div>
+  ${pagoForm}${pagoResult}`;
+}
+function bindBarberos(){
+  const sc=$("#save-com");if(sc)sc.onclick=()=>{DB.barberos.forEach((b,i)=>{const v=$("#com-"+i);if(v)b.com=Math.min(1,Math.max(0,(+v.value||0)/100));});commit("Comisiones guardadas ✓");};
+  const na=$("#nb-add");if(na)na.onclick=()=>{const n=val("#nb-nombre");if(!n)return toast("Poné un nombre");DB.barberos.push({n,com:(num("#nb-com")||50)/100,foto:null});commit("Barbero agregado ✓");};
+  document.querySelectorAll("[data-delb]").forEach(b=>b.onclick=()=>{
+    if(DB.barberos.length<=1)return toast("Tiene que quedar al menos un barbero");
+    if(confirm("¿Eliminar a "+b.dataset.delb+"? Sus cortes y ventas ya cargados quedan en el historial, pero no va a poder seguir cargando ni aparecer en el selector de perfiles."))
+      {DB.barberos=DB.barberos.filter(x=>x.n!==b.dataset.delb);commit("Barbero eliminado ✓");}
+  });
+  const pc=$("#pg-calc");if(pc)pc.onclick=()=>{S.comBarb=val("#pg-barb")||"todos";S.comDesde=val("#pg-desde")||"";S.comHasta=val("#pg-hasta")||"";render();};
+  document.querySelectorAll("[data-fotob]").forEach(btn=>btn.onclick=()=>{
+    const i=btn.dataset.fotob,input=$("#foto-in-"+i);
+    if(input)input.click();
+  });
+  document.querySelectorAll("[id^='foto-in-']").forEach(input=>input.onchange=e=>{
+    const i=+input.id.replace("foto-in-","");
+    const f=e.target.files[0];
+    leerFotoComoDataURL(f,240,dataUrl=>{DB.barberos[i].foto=dataUrl;commit("Foto actualizada ✓");});
+  });
+  document.querySelectorAll("[data-fotobclear]").forEach(btn=>btn.onclick=()=>{
+    DB.barberos[+btn.dataset.fotobclear].foto=null;commit("Foto quitada");
+  });
+}
+
+/* ================= OWNER: precios ================= */
+function tPrecios(){
+  const rows=DB.precios.map((p,i)=>`<div class="perm-row"><span class="pn">${esc(p.tipo)}</span><div style="display:flex;align-items:center;gap:6px"><span style="color:var(--ink-3)">$</span><input class="miniin" id="pr-${i}" type="number" min="0" value="${p.precio}"><button class="del" data-delpr="${esc(p.tipo)}" title="Eliminar servicio">✕</button></div></div>`).join("");
+  return head("Precios de servicios","Actualizá los precios cuando aumentes. No cambia los cortes ya hechos.",true)
+  +`<div class="warnbox">🔒 <b>Importante:</b> cuando subís un precio acá, se usa para los cortes <b>nuevos</b>. Los cortes ya cargados <b>quedan con el precio original</b> con el que se registraron.</div>
+  <div class="card"><h3>Lista de precios</h3><div class="sub">Estos son los valores que ven los barberos al cargar</div>${rows}<div class="addform" style="margin-top:14px;margin-bottom:0"><div class="ff grow"><label>Nuevo servicio</label><input id="np-tipo" placeholder="Ej: Diseño"></div><div class="ff"><label>Precio $</label><input type="number" id="np-precio" value="0"></div><button class="addbtn" id="np-add">＋ Agregar</button></div><button class="savebtn" id="save-pr" style="margin-top:14px">Guardar precios</button></div>`;
+}
+function bindPrecios(){
+  const sp=$("#save-pr");if(sp)sp.onclick=()=>{DB.precios.forEach((p,i)=>{const v=$("#pr-"+i);if(v)p.precio=Math.max(0,+v.value||0);});commit("Precios actualizados ✓");};
+  const na=$("#np-add");if(na)na.onclick=()=>{const t=val("#np-tipo");if(!t)return toast("Poné un nombre");DB.precios.push({tipo:t,precio:num("#np-precio")});commit("Servicio agregado ✓");};
+  document.querySelectorAll("[data-delpr]").forEach(b=>b.onclick=()=>{
+    if(DB.precios.length<=1)return toast("Tiene que quedar al menos un servicio");
+    if(confirm("¿Eliminar \""+b.dataset.delpr+"\" de la lista de servicios? Los cortes ya cargados con este servicio quedan en el historial igual."))
+      {DB.precios=DB.precios.filter(x=>x.tipo!==b.dataset.delpr);commit("Servicio eliminado ✓");}
+  });
+}
+
+/* ================= OWNER: gastos ================= */
+function tGastos(){
+  const CATS=["Alquiler","Sueldo","Insumos","Servicios","Impuestos","Mantenimiento","Mercadería","Otro"];
+  const desde=S.gDesde,hasta=S.gHasta;
+  const list=DB.gastos.filter(g=>(!desde||g.fecha>=desde)&&(!hasta||g.fecha<=hasta)).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const form=`<div class="addform"><div class="ff"><label>Fecha</label><input type="date" id="g-fecha" value="${today()}"></div><div class="ff"><label>Tipo</label><select id="g-tipo">${CATS.map(c=>`<option>${c}</option>`).join("")}</select></div><div class="ff grow"><label>Descripción</label><input id="g-desc" placeholder="Ej: sueldo de Tomi / compra sillón"></div><div class="ff"><label>Monto $</label><input type="number" id="g-monto" value="0"></div><div class="ff"><label>¿Cómo se pagó?</label><select id="g-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div><button class="addbtn" id="g-add">＋ Cargar</button></div>`;
+  const filtro=`<div class="card"><h3>Filtrar por fecha</h3><div class="sub">Útil para ver sueldos pagados por semana, quincena, etc. — no hace falta que sea el mes completo</div>
+    <div class="addform" style="margin-bottom:0">
+      <div class="ff"><label>Desde</label><input type="date" id="g-desde" value="${desde}"></div>
+      <div class="ff"><label>Hasta</label><input type="date" id="g-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="g-filtrar">Filtrar</button>
+      <button class="tbtn" id="g-limpiar" style="padding:11px 16px">Ver todo</button>
+    </div></div>`;
+  const rows=list.length?list.map(g=>`<tr><td>${fdate(g.fecha)}</td><td>${esc(g.tipo)}</td><td>${esc(g.desc)}</td><td class="num">${money(g.monto)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(g.pago||"Efectivo")}</span></td><td><button class="del" data-delg="${g.id}">✕</button></td></tr>`).join(""):`<tr><td colspan="6"><div class="empty">Sin gastos en este rango.</div></td></tr>`;
+  return head("Gastos y sueldos","Gastos que no son de cortes: alquiler, sueldos, compras grandes, etc.",true)
+  +form+filtro+`<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th class="num">Monto</th><th>Pago</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Total ${desde||hasta?"en el rango filtrado":"gastos cargados"}</span><b class="tnum">${money(sumBy(list,g=>g.monto))}</b></div></div>`;
+}
+function bindGastos(){
+  const a=$("#g-add");if(a)a.onclick=()=>{if(num("#g-monto")<=0)return toast("Poné un monto");DB.gastos.push({id:pid(),fecha:val("#g-fecha"),tipo:val("#g-tipo"),desc:val("#g-desc")||val("#g-tipo"),monto:num("#g-monto"),pago:val("#g-pago")||"Efectivo"});commit("Gasto cargado ✓");};
+  const f=$("#g-filtrar");if(f)f.onclick=()=>{S.gDesde=val("#g-desde")||"";S.gHasta=val("#g-hasta")||"";render();};
+  const l=$("#g-limpiar");if(l)l.onclick=()=>{S.gDesde="";S.gHasta="";render();};
+}
+
+/* ================= OWNER: stock ================= */
+function tStock(){
+  const cats=[...new Set(DB.productos.map(p=>p.cat).filter(Boolean))];
+  const catOpts=cats.map(c=>`<option>${esc(c)}</option>`).join("")+`<option value="__nueva__">＋ Nueva categoría…</option>`;
+  const form=`<div class="addform"><div class="ff grow"><label>Producto</label><input id="st-nom" placeholder="Ej: Gel fijador"></div>
+    <div class="ff"><label>Categoría</label><select id="st-cat">${catOpts}</select></div>
+    <div class="ff" id="st-cat-new-wrap" style="display:none"><label>Nueva categoría</label><input id="st-cat-new" placeholder="Ej: Peinado"></div>
+    <div class="ff"><label>Costo $</label><input type="number" id="st-costo" value="0"></div><div class="ff"><label>Precio $</label><input type="number" id="st-precio" value="0"></div><div class="ff"><label>Stock</label><input type="number" id="st-cant" value="0"></div><div class="ff"><label>Mínimo</label><input type="number" id="st-min" value="3"></div><button class="addbtn" id="st-add">＋</button></div>`;
+  const rows=DB.productos.map(p=>{const act=stockActual(p),rep=act<p.min;return `<tr><td>${esc(p.nombre)}</td><td>${esc(p.cat)}</td><td class="num">${act}</td><td class="num">${p.min}</td><td class="num">${money(p.costo)}</td><td class="num">${money(p.precio)}</td><td>${rep?'<span class="pill rep">REPONER</span>':'<span class="pill ok">OK</span>'}</td><td><button class="del" data-delp="${p.id}">✕</button></td></tr>`;}).join("");
+  return head("Stock / Productos","Vapes, perfumes, ceras. Se marca en rojo al bajar del mínimo.",true)
+  +form+`<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th class="num">Stock</th><th class="num">Mín</th><th class="num">Costo</th><th class="num">Precio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Valor del stock</span><b class="tnum">${money(sumBy(DB.productos,p=>stockActual(p)*p.costo))}</b></div></div>`;
+}
+function bindStock(){
+  const sc=$("#st-cat");if(sc)sc.onchange=()=>{$("#st-cat-new-wrap").style.display=sc.value==="__nueva__"?"":"none";};
+  const a=$("#st-add");if(a)a.onclick=()=>{const n=val("#st-nom");if(!n)return toast("Poné un nombre");const cat=sc&&sc.value==="__nueva__"?(val("#st-cat-new")||"Otros"):(val("#st-cat")||"Otros");DB.productos.push({id:pid(),nombre:n,cat,costo:num("#st-costo"),precio:num("#st-precio"),cargado:num("#st-cant"),min:num("#st-min")||3});commit("Producto agregado ✓");};
+  document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{if(confirm("¿Eliminar este producto del stock?")){DB.productos=DB.productos.filter(x=>x.id!==b.dataset.delp);commit("Eliminado");}});}
+
+/* ================= OWNER: config ================= */
+function tConfig(){
+  return head("Configuración","Marca, clave, respaldo y datos.",true)
+  +`<div class="card"><h3>🏷️ Nombre y logo de la barbería</h3><div class="sub">Se ve arriba de todo y en la pantalla de selección de perfil</div>
+    <div class="addform" style="margin-bottom:14px"><div class="ff grow"><label>Nombre de la barbería</label><input id="cfg-nombre" value="${esc(DB.nombre||"Mi Barbería")}" placeholder="Ej: Barbería Don Pepe"></div><button class="addbtn" id="cfg-nombre-save">Guardar nombre</button></div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="width:64px;height:64px;border-radius:16px;overflow:hidden;border:1px solid var(--line);flex:none"><img id="cfg-logo-preview" src="${DB.logo||DEFAULT_LOGO}" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label class="tbtn" style="cursor:pointer">⬆ Subir logo<input type="file" accept="image/*" id="cfg-logo-in" style="display:none"></label>
+        ${DB.logo?'<button class="tbtn" id="cfg-logo-reset">Volver al ícono por defecto</button>':""}
+      </div>
+    </div></div>
+  <div class="card"><h3>🔑 Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>
+  <div class="card"><h3>💾 Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">⬇ Descargar respaldo</button><label class="tbtn" style="cursor:pointer">⬆ Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
+  <div class="card"><h3>Empezar de cero</h3><div class="sub">Si estuviste probando la app con datos de prueba, borralos antes de usarla en serio.</div><button class="tbtn" id="wipe" style="border-color:var(--crit);color:var(--crit)">🗑 Borrar cortes, ventas, gastos y turnos cargados</button></div>`;
+}
+function bindConfig(){
+  const ps=$("#pin-save");if(ps)ps.onclick=()=>{if(val("#pin-old")!==DB.pin)return toast("La clave actual no coincide");const nw=val("#pin-new");if(!/^\d{4}$/.test(nw))return toast("La nueva clave debe ser 4 dígitos");DB.pin=nw;commit("Clave actualizada ✓");};
+  const ex=$("#export");if(ex)ex.onclick=()=>{const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);const slug=(DB.nombre||"barberia").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||"barberia";a.download=slug+"-respaldo-"+today()+".json";a.click();toast("Respaldo descargado ✓");};
+  const im=$("#import");if(im)im.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.barberos||!d.precios)throw 0;DB=d;commit("Datos restaurados ✓");}catch(err){toast("Archivo no válido");}};r.readAsText(f);};
+  const w=$("#wipe");if(w)w.onclick=()=>{if(confirm("¿Borrar TODOS los datos cargados (cortes, ventas, gastos, turnos)? Se mantienen barberos, precios, productos, nombre y logo.")){DB.servicios=[];DB.ventas=[];DB.gastos=[];DB.turnos=[];commit("Listo, empezá a cargar ✂");}};
+  const cn=$("#cfg-nombre-save");if(cn)cn.onclick=()=>{const n=val("#cfg-nombre");if(!n)return toast("Poné un nombre");DB.nombre=n;commit("Nombre actualizado ✓");};
+  const li=$("#cfg-logo-in");if(li)li.onchange=e=>{const f=e.target.files[0];leerFotoComoDataURL(f,240,dataUrl=>{DB.logo=dataUrl;commit("Logo actualizado ✓");});};
+  const lr=$("#cfg-logo-reset");if(lr)lr.onclick=()=>{DB.logo=null;commit("Logo restablecido");};
+}
+
+/* ---------- delete bindings shared ---------- */
+function bindDeletes(){
+  document.querySelectorAll("[data-dels]").forEach(b=>b.onclick=()=>{DB.servicios=DB.servicios.filter(x=>x.id!==b.dataset.dels);commit("Eliminado");});
+  document.querySelectorAll("[data-delg]").forEach(b=>b.onclick=()=>{DB.gastos=DB.gastos.filter(x=>x.id!==b.dataset.delg);commit("Eliminado");});
+}
+
+/* ================= ROUTER ================= */
+function render(){
+  renderWho();
+  if(!S.profile){root.innerHTML=viewSelect();bindSelect();$("#foot").textContent="Prototipo funcional · los datos se guardan en esta computadora.";}
+  else if(S.profile.type==="pin"){root.innerHTML=viewPin();bindPin();$("#foot").textContent="";}
+  else{
+    root.innerHTML=viewApp();
+    document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;render();});
+    // per-tab bindings
+    bindCargar();bindAgenda();bindCierre();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();
+    $("#foot").textContent="Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
+  }
+}
+
+/* ---------- boot ---------- */
+DB=load();
+if(!DB){DB=defaultDB();save();}
+// por las dudas (datos viejos sin estos campos), completamos valores por defecto
+if(DB.nombre===undefined)DB.nombre="Mi Barbería";
+if(DB.logo===undefined)DB.logo=null;
+if(DB.cierres===undefined)DB.cierres=[];
+(DB.barberos||[]).forEach(b=>{if(b.foto===undefined)b.foto=null;});
+// los turnos de días ya pasados se limpian solos (la agenda es para el día a día,
+// no para guardar historial — eso ya queda en Servicios cuando marcás "Atendido" y lo cargás)
+(function limpiarTurnosVencidos(){
+  const antes=DB.turnos.length;
+  DB.turnos=DB.turnos.filter(t=>t.fecha>=today());
+  if(DB.turnos.length!==antes)save();
+})();
+// pintar marca (nombre/logo) en el topbar y en el título de la pestaña
+paintBrand();
+render();
+</script>
