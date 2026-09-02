@@ -220,7 +220,8 @@ function defaultDB(){
     logo:null,
     barberos:[{n:"Barbero 1",com:0.5,foto:null},{n:"Barbero 2",com:0.5,foto:null},{n:"Barbero 3",com:0.5,foto:null}],
     pin:"1234",
-    precios:[{tipo:"Corte",precio:8000},{tipo:"Corte + Barba",precio:12000},{tipo:"Barba",precio:5000},{tipo:"Otro",precio:0}],
+    precios:[{tipo:"Corte",precio:8000,visible:true},{tipo:"Corte + Barba",precio:12000,visible:true},{tipo:"Barba",precio:5000,visible:true},{tipo:"Otro",precio:0,visible:false}],
+    horario:{apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]},
     productos:[
       {id:pid(),nombre:"Cera para pelo",cat:"Peinado",costo:2500,precio:5000,cargado:10,min:3},
       {id:pid(),nombre:"Perfume",cat:"Perfumería",costo:5000,precio:9000,cargado:6,min:2},
@@ -236,7 +237,7 @@ function defaultDB(){
 function pid(){return Math.random().toString(36).slice(2,9);}
 
 /* ---------- state ---------- */
-const S={profile:null,ownerUnlocked:false,tab:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today()};
+const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today()};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
 
@@ -402,7 +403,7 @@ function pinPress(k){
   else if(S.pinBuf.length<4)S.pinBuf+=k;
   S.pinErr="";
   if(S.pinBuf.length===4){
-    if(S.pinBuf===DB.pin){S.profile={type:"owner"};S.ownerUnlocked=true;S.tab="panel";render();return;}
+    if(S.pinBuf===DB.pin){S.profile={type:"owner"};S.ownerUnlocked=true;S.tab="finanzas";S.subFin="panel";render();return;}
     else{S.pinErr="err";S.pinBuf="";render();setTimeout(()=>{S.pinErr="";render();},700);return;}
   }
   render();
@@ -422,29 +423,38 @@ function renderWho(){
   const isOwner=S.profile.type==="owner";
   const name=isOwner?"Dueño":S.profile.name;
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
-  slot.innerHTML=`<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">Cambiar</button></div>`;
+  const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">Cambiar</button></div></div>`;
   $("#swapbtn").onclick=()=>{S.profile=null;S.ownerUnlocked=false;render();};
 }
 
 /* ================= APP SHELL ================= */
 const BARB_NAV=[["cargar","✂","Cargar"],["mishist","📋","Mi historial"],["miscom","％","Mis comisiones"],["miagenda","🗓","Mi agenda"]];
-const OWNER_NAV=[
+const OWNER_NAV=[["web","🌐","Web virtual"],["agenda","🗓","Agenda"],["finanzas","💰","Finanzas"]];
+const FIN_SUB=[
   ["panel","◧","Panel"],["cargar","✂","Cargar"],["servicios","📋","Servicios"],["graficos","◔","Gráficos"],
-  ["agenda","🗓","Agenda"],["cierre","🧾","Cierre diario"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
-  ["gastos","⬇","Gastos y sueldos"],["stock","◭","Stock / Productos"],["config","⚙","Configuración"]];
+  ["cierre","🧾","Cierre diario"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
+  ["gastos","⬇","Gastos y sueldos"],["stock","◭","Stock / Productos"]];
 function viewApp(){
   const isOwner=S.profile.type==="owner";
   const nav=isOwner?OWNER_NAV:BARB_NAV;
-  if(!nav.find(n=>n[0]===S.tab))S.tab=nav[0][0];
+  if(!nav.find(n=>n[0]===S.tab)&&S.tab!=="config")S.tab=nav[0][0];
   const navHTML=nav.map(n=>`<button class="navitem ${S.tab===n[0]?"on":""}" data-tab="${n[0]}"><span class="gi">${n[1]}</span>${n[2]}</button>`).join("");
-  return `<div class="app fade"><aside class="side">${isOwner?'<div class="sect">Modo Dueño 🔒</div>':'<div class="sect">Barbero</div>'}${navHTML}</aside><div class="main">${renderTab()}</div></div>`;
+  const finSubHTML=(isOwner&&S.tab==="finanzas")?`<div class="sect" style="margin-top:8px">Finanzas</div>${FIN_SUB.map(n=>`<button class="navitem ${S.subFin===n[0]?"on":""}" data-subfin="${n[0]}"><span class="gi">${n[1]}</span>${n[2]}</button>`).join("")}`:"";
+  return `<div class="app fade"><aside class="side">${isOwner?'<div class="sect">Modo Dueño 🔒</div>':'<div class="sect">Barbero</div>'}${navHTML}${finSubHTML}</aside><div class="main">${renderTab()}</div></div>`;
 }
 function renderTab(){
   const isOwner=S.profile.type==="owner";
-  const R=isOwner
-    ?{panel:tPanel,cargar:tCargar,servicios:tServicios,graficos:tGraficos,agenda:tAgenda,cierre:tCierre,barberos:tBarberos,precios:tPrecios,gastos:tGastos,stock:tStock,config:tConfig}
-    :{cargar:tCargar,mishist:tMisHist,miscom:tMisCom,miagenda:tMiAgenda};
-  return (R[S.tab]||tCargar)();
+  if(!isOwner){
+    const R={cargar:tCargar,mishist:tMisHist,miscom:tMisCom,miagenda:tMiAgenda};
+    return (R[S.tab]||tCargar)();
+  }
+  if(S.tab==="web")return tWebVirtual();
+  if(S.tab==="agenda")return tAgenda();
+  if(S.tab==="config")return tConfig();
+  const FR={panel:tPanel,cargar:tCargar,servicios:tServicios,graficos:tGraficos,cierre:tCierre,barberos:tBarberos,precios:tPrecios,gastos:tGastos,stock:tStock};
+  if(!FR[S.subFin])S.subFin="panel";
+  return (FR[S.subFin]||tPanel)();
 }
 function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p></div>${owner?'<span class="ownerband">🔒 Solo dueño</span>':""}</div>`;}
 function curBarbero(){return S.profile.type==="barber"?S.profile.name:null;}
@@ -535,7 +545,7 @@ function tMisHist(){
       <button class="addbtn" id="mh-filtrar">Filtrar</button>
       <button class="tbtn" id="mh-limpiar" style="padding:11px 16px">Ver todo</button>
     </div></div>`;
-  const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">${activo?"Sin cortes con este filtro.":'Todavía no cargaste cortes. Andá a "Cargar" ✂'}</div></td></tr>`;
+  const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}${s.turnoId?' <span title="Generado desde un turno de la agenda">🔗</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">${activo?"Sin cortes con este filtro.":'Todavía no cargaste cortes. Andá a "Cargar" ✂'}</div></td></tr>`;
   return head("Mi historial","Tus cortes y ventas, "+esc(b)+".")
   +`<div class="kpis">${kpi("Mis cortes",list.length,"total")}${kpi("Facturé",money(sumBy(list,s=>s.precio)),"en cortes")}${kpi("Mis ventas prod.",ventas.length,money(sumBy(ventas,v=>v.total)))}${kpi("Mi comisión",money(sumBy(list,s=>s.comBarbero)),"acumulada",1)}</div>`
   +filtro+`<div class="card fade"><h3>Mis cortes</h3><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Mi comisión</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
@@ -604,8 +614,21 @@ function agendaForm(fixedBarbero){
 }
 function agendaTable(list,showBarb){
   const solap=overlaps(list);
-  const rows=list.length?list.map(t=>`<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}</td><td><button class="pill ${t.estado==="done"?"done":"pend"}" data-tg="${t.id}" style="border:0;cursor:pointer">${t.estado==="done"?"Atendido":"Pendiente"}</button></td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
-  return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  const rows=list.length?list.map(t=>{
+    const estadoCell=t.estado==="done"
+      ?`<span class="pill done" data-tg="${t.id}" style="cursor:pointer" title="Volver a pendiente (no borra lo ya cobrado)">Atendido ✓</span>`
+      :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
+    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`;
+  }).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
+  return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="sub" style="margin-top:10px">Al marcar "Atendido" se carga solo en Finanzas con el medio de pago elegido — no hace falta cargarlo de nuevo en "Cargar".</div></div>`;
+}
+function crearServicioDesdeTurno(t,medio){
+  if(t.servicioId)return;
+  const precio=precioDe(t.servicio);
+  const com=comDe(t.barbero);
+  const nuevo={id:pid(),fecha:t.fecha,hora:t.hora,barbero:t.barbero,tipo:t.servicio,precio,desc:t.cliente,pago:medio||"Efectivo",comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(t.fecha),turnoId:t.id};
+  DB.servicios.push(nuevo);
+  t.servicioId=nuevo.id;
 }
 function bindAgenda(){
   document.querySelectorAll("[data-dnav]").forEach(b=>b.onclick=()=>{
@@ -621,7 +644,14 @@ function bindAgenda(){
     S.agendaFecha=fecha;
     commit("Turno agendado ✓");
   };
-  document.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{const t=DB.turnos.find(x=>x.id===b.dataset.tg);t.estado=t.estado==="done"?"pend":"done";commit("");});
+  document.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{
+    const t=DB.turnos.find(x=>x.id===b.dataset.tg);
+    if(t.estado==="done"){t.estado="pend";commit("");return;}
+    const sel=document.querySelector(`[data-turnopago="${t.id}"]`);
+    crearServicioDesdeTurno(t,sel?sel.value:"Efectivo");
+    t.estado="done";
+    commit("Atendido — cargado en Finanzas ✓");
+  });
   document.querySelectorAll("[data-delt]").forEach(b=>b.onclick=()=>{DB.turnos=DB.turnos.filter(x=>x.id!==b.dataset.delt);commit("Eliminado");});
 }
 
@@ -632,7 +662,7 @@ function tPanel(){
   const alert=DB.productos.filter(p=>stockActual(p)<p.min).length;
   const hoyPendiente=!cierreExistente(today())&&(serviciosDia(today()).length||ventasDia(today()).length||gastosDia(today()).length);
   return head("Panel","Los números del mes de un vistazo.",true)
-  +(hoyPendiente?`<div class="warnbox">📋 Todavía no cerraste el día de hoy. <button data-tab="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
+  +(hoyPendiente?`<div class="warnbox">📋 Todavía no cerraste el día de hoy. <button data-tab="finanzas" data-subfin="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
   +`<div class="kpis">
     ${kpi("Facturación del mes",money(fact),"cortes + productos")}
     ${kpi("Ganancia barbería",money(gan),"tras comisiones y gastos",gan>=0?1:2)}
@@ -665,7 +695,7 @@ function tServicios(){
       <button class="addbtn" id="sv-filtrar">Filtrar</button>
       <button class="tbtn" id="sv-limpiar" style="padding:11px 16px">Ver todo</button>
     </div></div>`;
-  const rows=list.length?list.map(s=>{const bo=DB.barberos.find(x=>x.n===s.barbero);return `<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${avatarHTML(s.barbero,bo&&bo.foto,"av-sm")}${esc(s.barbero)}</td><td>${esc(s.tipo)}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td><td class="num">${money(s.comBarberia)}</td><td><button class="del" data-dels="${s.id}">✕</button></td></tr>`;}).join(""):`<tr><td colspan="10"><div class="empty">Sin servicios ${activo?"con este filtro":"cargados"}.</div></td></tr>`;
+  const rows=list.length?list.map(s=>{const bo=DB.barberos.find(x=>x.n===s.barbero);return `<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${avatarHTML(s.barbero,bo&&bo.foto,"av-sm")}${esc(s.barbero)}</td><td>${esc(s.tipo)}${s.turnoId?' <span title="Generado desde un turno de la agenda">🔗</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td><td class="num">${money(s.comBarberia)}</td><td><button class="del" data-dels="${s.id}">✕</button></td></tr>`;}).join(""):`<tr><td colspan="10"><div class="empty">Sin servicios ${activo?"con este filtro":"cargados"}.</div></td></tr>`;
   return head("Servicios","Todos los cortes cargados por el equipo.",true)
   +filtro+`<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Barbero</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Com. barbero</th><th class="num">Com. barbería</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Total facturado ${activo?"con este filtro":"en cortes"}</span><b class="tnum">${money(sumBy(list,s=>s.precio))}</b></div></div>`;
 }
@@ -687,6 +717,72 @@ function tGraficos(){
   <div class="card"><h3>Facturación por tipo de servicio</h3><div class="sub">${S.graphB==="todos"?"Todos los barberos":esc(S.graphB)}</div>${se.length?se.map(([n,v])=>`<div class="hbar"><div class="hl"><span>${esc(n)}</span><b class="tnum">${money(v)}</b></div><div class="ht"><div class="hf" style="width:${v/smax*100}%"></div></div></div>`).join(""):'<div class="empty">Sin datos.</div>'}</div>`;
 }
 function bindGraficos(){const s=$("#gb-sel");if(s)s.onchange=()=>{S.graphB=s.value;render();};}
+
+/* ================= OWNER: web virtual (vidriera / futura reserva online) ================= */
+const DIAS_SEM=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+function tWebVirtual(){
+  const h=DB.horario;
+  const diasChips=DIAS_SEM.map((d,i)=>`<button class="chip ${h.dias.includes(i)?"sel":""}" data-diatoggle="${i}"><span>${d}</span></button>`).join("");
+  const servRows=DB.precios.map((p,i)=>`<div class="perm-row"><span class="pn">${esc(p.tipo)}<small>${p.precio>0?money(p.precio):"a definir"}</small></span><label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)"><input type="checkbox" id="wv-vis-${i}" ${p.visible!==false?"checked":""}> Mostrar en la web</label></div>`).join("");
+  const visibles=DB.precios.filter(p=>p.visible!==false);
+  const barberosTxt=DB.barberos.map(b=>b.n).join(", ");
+  const serviciosTxt=visibles.map(p=>`${p.tipo}${p.precio>0?" — "+money(p.precio):""}`).join("\n");
+  const diasTxt=h.dias.length===7?"Todos los días":DIAS_SEM.filter((d,i)=>h.dias.includes(i)).join(", ")||"Sin días configurados";
+  const textoCompartir=`${DB.nombre||"Mi Barbería"}\n${diasTxt} · ${h.apertura} a ${h.cierre}\n\n${serviciosTxt}`;
+  return head("Web virtual","Configurá cómo se va a ver tu página de reservas online. Esto todavía es una vista previa — el link público real necesita conectar una base de datos en la nube.",true)
+  +`<div class="warnbox">🌐 <b>Vista previa, no es un link público todavía.</b> Acá configurás los datos que se van a usar cuando activemos las reservas online reales. Mientras tanto, usá el texto de abajo para compartir por WhatsApp o redes.</div>
+  <div class="card"><h3>Horario de atención</h3>
+    <div class="addform" style="margin-bottom:12px">
+      <div class="ff"><label>Apertura</label><input type="time" id="wv-apertura" value="${h.apertura}"></div>
+      <div class="ff"><label>Cierre</label><input type="time" id="wv-cierre" value="${h.cierre}"></div>
+      <div class="ff"><label>Duración de cada turno (min)</label><input type="number" id="wv-duracion" value="${h.duracion}" min="10" step="5"></div>
+    </div>
+    <div class="sub">Días abiertos</div>
+    <div class="chips">${diasChips}</div>
+    <button class="savebtn" id="wv-guardar" style="margin-top:14px">Guardar horario</button>
+  </div>
+  <div class="card"><h3>Servicios visibles en la web</h3><div class="sub">Elegí cuáles mostrar cuando actives las reservas online</div>${servRows}<button class="savebtn" id="wv-guardar-serv" style="margin-top:14px">Guardar</button></div>
+  <div class="grid2">
+    <div class="card"><h3>Vista previa</h3><div class="sub">Así se vería tu vidriera online</div>
+      <div style="border:1px solid var(--line);border-radius:14px;padding:18px;background:var(--panel-2)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="width:44px;height:44px;border-radius:11px;overflow:hidden;flex-shrink:0"><img src="${DB.logo||DEFAULT_LOGO}" style="width:100%;height:100%;object-fit:cover"></div><b style="font-size:16px">${esc(DB.nombre||"Mi Barbería")}</b></div>
+        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">🕐 ${esc(diasTxt)} · ${h.apertura} a ${h.cierre}</div>
+        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:10px">✂ ${esc(barberosTxt)}</div>
+        ${visibles.length?visibles.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line-2);font-size:13px"><span>${esc(p.tipo)}</span><b>${p.precio>0?money(p.precio):"a consultar"}</b></div>`).join(""):'<div class="empty">Sin servicios marcados como visibles.</div>'}
+      </div>
+    </div>
+    <div class="card"><h3>Texto para compartir</h3><div class="sub">Copialo y pegalo en tu WhatsApp, Instagram o donde quieras</div>
+      <textarea id="wv-texto" readonly style="width:100%;min-height:160px;border:1.5px solid var(--line);border-radius:11px;background:var(--panel-2);padding:12px;font-size:13px;font-family:inherit;color:var(--ink)">${esc(textoCompartir)}</textarea>
+      <button class="savebtn" id="wv-copiar" style="margin-top:10px">📋 Copiar texto</button>
+    </div>
+  </div>`;
+}
+function bindWebVirtual(){
+  document.querySelectorAll("[data-diatoggle]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.diatoggle;
+    const set=new Set(DB.horario.dias);
+    if(set.has(i))set.delete(i);else set.add(i);
+    DB.horario.dias=[...set].sort();
+    commit();
+  });
+  const gh=$("#wv-guardar");if(gh)gh.onclick=()=>{
+    DB.horario.apertura=val("#wv-apertura")||"09:00";
+    DB.horario.cierre=val("#wv-cierre")||"20:00";
+    DB.horario.duracion=Math.max(10,num("#wv-duracion")||30);
+    commit("Horario guardado ✓");
+  };
+  const gs=$("#wv-guardar-serv");if(gs)gs.onclick=()=>{
+    DB.precios.forEach((p,i)=>{const c=$("#wv-vis-"+i);if(c)p.visible=c.checked;});
+    commit("Servicios actualizados ✓");
+  };
+  const cp=$("#wv-copiar");if(cp)cp.onclick=()=>{
+    const ta=$("#wv-texto");if(!ta)return;
+    ta.select();
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(ta.value).then(()=>toast("Copiado ✓")).catch(()=>{document.execCommand("copy");toast("Copiado ✓");});
+    }else{document.execCommand("copy");toast("Copiado ✓");}
+  };
+}
 
 /* ================= OWNER: agenda completa ================= */
 function tAgenda(){
@@ -902,9 +998,10 @@ function render(){
   else if(S.profile.type==="pin"){root.innerHTML=viewPin();bindPin();$("#foot").textContent="";}
   else{
     root.innerHTML=viewApp();
-    document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;render();});
+    document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
+    document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
     // per-tab bindings
-    bindCargar();bindAgenda();bindCierre();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();
+    bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();
     $("#foot").textContent="Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
   }
 }
@@ -916,6 +1013,8 @@ if(!DB){DB=defaultDB();save();}
 if(DB.nombre===undefined)DB.nombre="Mi Barbería";
 if(DB.logo===undefined)DB.logo=null;
 if(DB.cierres===undefined)DB.cierres=[];
+if(DB.horario===undefined)DB.horario={apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]};
+(DB.precios||[]).forEach(p=>{if(p.visible===undefined)p.visible=true;});
 (DB.barberos||[]).forEach(b=>{if(b.foto===undefined)b.foto=null;});
 // los turnos de días ya pasados se limpian solos (la agenda es para el día a día,
 // no para guardar historial — eso ya queda en Servicios cuando marcás "Atendido" y lo cargás)
