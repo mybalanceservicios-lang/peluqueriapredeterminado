@@ -103,10 +103,17 @@ const SUPABASE_URL="https://gzlfashxopkoeujuxufo.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable_e3CMRZDaFaFDTEGJJ7Py-Q_dbVyS6dL";
 const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.barbero,cliente:r.cliente,telefono:r.telefono,servicio:r.servicio,estado:r.estado,origen:r.origen,servicioId:r.servicio_id};}
+// evita que un pedido colgado (wifi/datos con problemas) deje la página esperando para siempre
+function conTimeout(promesa,ms){
+  return Promise.race([
+    promesa,
+    new Promise(resolve=>setTimeout(()=>resolve({data:null,error:{message:"timeout"}}),ms||8000))
+  ]);
+}
 async function cargarConfigRemota(){
   if(!sb)return false;
   try{
-    const {data,error}=await sb.from("config").select("*").eq("id","default").maybeSingle();
+    const {data,error}=await conTimeout(sb.from("config").select("*").eq("id","default").maybeSingle());
     if(error||!data)return false;
     if(data.nombre)DB.nombre=data.nombre;
     if(data.logo!==undefined)DB.logo=data.logo;
@@ -119,7 +126,7 @@ async function cargarConfigRemota(){
 async function cargarTurnosRemotos(){
   if(!sb)return false;
   try{
-    const {data,error}=await sb.from("turnos").select("*").gte("fecha",today());
+    const {data,error}=await conTimeout(sb.from("turnos").select("*").gte("fecha",today()));
     if(error||!data)return false;
     DB.turnos=data.map(turnoDeRemoto);
     return true;
@@ -128,7 +135,7 @@ async function cargarTurnosRemotos(){
 async function hayChoque(fecha,hora,barbero){
   if(!sb)return false;
   try{
-    const {data,error}=await sb.from("turnos").select("id").eq("fecha",fecha).eq("hora",hora).eq("barbero",barbero).limit(1);
+    const {data,error}=await conTimeout(sb.from("turnos").select("id").eq("fecha",fecha).eq("hora",hora).eq("barbero",barbero).limit(1));
     if(error)return false;
     return data&&data.length>0;
   }catch(e){return false;}
@@ -136,7 +143,7 @@ async function hayChoque(fecha,hora,barbero){
 async function crearTurnoRemoto(t){
   if(!sb)return false;
   try{
-    const {error}=await sb.from("turnos").insert({id:t.id,fecha:t.fecha,hora:t.hora,barbero:t.barbero,cliente:t.cliente,telefono:t.telefono||null,servicio:t.servicio,estado:t.estado,origen:t.origen});
+    const {error}=await conTimeout(sb.from("turnos").insert({id:t.id,fecha:t.fecha,hora:t.hora,barbero:t.barbero,cliente:t.cliente,telefono:t.telefono||null,servicio:t.servicio,estado:t.estado,origen:t.origen}),12000);
     return !error;
   }catch(e){return false;}
 }
@@ -290,8 +297,7 @@ function fdate(iso){const p=iso.split("-");return p.length===3?p[2]+"/"+p[1]+"/"
 
 async function init(){
   CARGANDO=true;ERROR_CONEXION=false;render();
-  const okConfig=await cargarConfigRemota();
-  await cargarTurnosRemotos();
+  const [okConfig]=await Promise.all([cargarConfigRemota(),cargarTurnosRemotos()]);
   CARGANDO=false;
   if(!okConfig)ERROR_CONEXION=true;
   pintarMarca();

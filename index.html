@@ -218,10 +218,17 @@ const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 const SUPABASE_URL="https://gzlfashxopkoeujuxufo.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable_e3CMRZDaFaFDTEGJJ7Py-Q_dbVyS6dL";
 const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+// evita que un pedido colgado (wifi/datos con problemas) deje algo esperando para siempre
+function conTimeout(promesa,ms){
+  return Promise.race([
+    promesa,
+    new Promise(resolve=>setTimeout(()=>resolve({data:null,error:{message:"timeout"}}),ms||8000))
+  ]);
+}
 async function cargarConfigRemota(){
   if(!sb)return false;
   try{
-    const {data,error}=await sb.from("config").select("*").eq("id","default").maybeSingle();
+    const {data,error}=await conTimeout(sb.from("config").select("*").eq("id","default").maybeSingle());
     if(error||!data)return false;
     if(data.nombre)DB.nombre=data.nombre;
     if(data.logo!==undefined)DB.logo=data.logo;
@@ -234,7 +241,7 @@ async function cargarConfigRemota(){
 async function guardarConfigRemota(){
   if(!sb)return;
   try{
-    await sb.from("config").update({nombre:DB.nombre,logo:DB.logo,horario:DB.horario,precios:DB.precios,barberos:DB.barberos,updated_at:new Date().toISOString()}).eq("id","default");
+    await conTimeout(sb.from("config").update({nombre:DB.nombre,logo:DB.logo,horario:DB.horario,precios:DB.precios,barberos:DB.barberos,updated_at:new Date().toISOString()}).eq("id","default"));
   }catch(e){}
 }
 function turnoARemoto(t){return {id:t.id,fecha:t.fecha,hora:t.hora,barbero:t.barbero,cliente:t.cliente,telefono:t.telefono||null,servicio:t.servicio,estado:t.estado,origen:t.origen||"app",servicio_id:t.servicioId||null};}
@@ -242,7 +249,7 @@ function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.ba
 async function cargarTurnosRemotos(){
   if(!sb)return false;
   try{
-    const {data,error}=await sb.from("turnos").select("*").gte("fecha",today()).order("fecha").order("hora");
+    const {data,error}=await conTimeout(sb.from("turnos").select("*").gte("fecha",today()).order("fecha").order("hora"));
     if(error||!data)return false;
     DB.turnos=data.map(turnoDeRemoto);
     return true;
@@ -250,11 +257,11 @@ async function cargarTurnosRemotos(){
 }
 async function guardarTurnoRemoto(t){
   if(!sb)return;
-  try{await sb.from("turnos").upsert(turnoARemoto(t));}catch(e){}
+  try{await conTimeout(sb.from("turnos").upsert(turnoARemoto(t)));}catch(e){}
 }
 async function borrarTurnoRemoto(id){
   if(!sb)return;
-  try{await sb.from("turnos").delete().eq("id",id);}catch(e){}
+  try{await conTimeout(sb.from("turnos").delete().eq("id",id));}catch(e){}
 }
 
 /* ---------- default data (plantilla en blanco) ---------- */
@@ -1093,8 +1100,7 @@ render();
 // y de paso empujamos el estado actual, así la página de reservas siempre tiene algo para mostrar
 (async function syncInicial(){
   if(!sb)return;
-  await cargarConfigRemota();
-  await cargarTurnosRemotos();
+  await Promise.all([cargarConfigRemota(),cargarTurnosRemotos()]);
   save();paintBrand();render();
   guardarConfigRemota();
 })();
