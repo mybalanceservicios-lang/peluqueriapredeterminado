@@ -206,12 +206,56 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
 const $=(s,e=document)=>e.querySelector(s);
 const root=$("#root");
 const KEY="barberia_v1";
 const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj4KPGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iNTgiIGZpbGw9IiNGNUVBRDAiIHN0cm9rZT0iI0E4N0ExQyIgc3Ryb2tlLXdpZHRoPSIzIi8+CjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYwLDYwKSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTg3QTFDIiBzdHJva2Utd2lkdGg9IjciIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9IjE4IiByPSI4IiBmaWxsPSIjRjVFQUQwIi8+CjxjaXJjbGUgY3g9Ii0yMCIgY3k9Ii0xOCIgcj0iOCIgZmlsbD0iI0Y1RUFEMCIvPgo8bGluZSB4MT0iLTEzIiB5MT0iMTMiIHgyPSIyNiIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iLTEzIiB5MT0iLTEzIiB4Mj0iMjYiIHkyPSIyMiIvPgo8bGluZSB4MT0iMjYiIHkxPSItMjIiIHgyPSIzNCIgeTI9Ii0yMiIvPgo8bGluZSB4MT0iMjYiIHkxPSIyMiIgeDI9IjM0IiB5Mj0iMjIiLz4KPC9nPgo8L3N2Zz4=";
+
+/* ---------- Supabase: turnos y config compartidos entre dispositivos ---------- */
+const SUPABASE_URL="https://gzlfashxopkoeujuxufo.supabase.co";
+const SUPABASE_ANON_KEY="sb_publishable_e3CMRZDaFaFDTEGJJ7Py-Q_dbVyS6dL";
+const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+async function cargarConfigRemota(){
+  if(!sb)return false;
+  try{
+    const {data,error}=await sb.from("config").select("*").eq("id","default").maybeSingle();
+    if(error||!data)return false;
+    if(data.nombre)DB.nombre=data.nombre;
+    if(data.logo!==undefined)DB.logo=data.logo;
+    if(data.horario)DB.horario=data.horario;
+    if(data.precios&&data.precios.length)DB.precios=data.precios;
+    if(data.barberos&&data.barberos.length)DB.barberos=data.barberos;
+    return true;
+  }catch(e){return false;}
+}
+async function guardarConfigRemota(){
+  if(!sb)return;
+  try{
+    await sb.from("config").update({nombre:DB.nombre,logo:DB.logo,horario:DB.horario,precios:DB.precios,barberos:DB.barberos,updated_at:new Date().toISOString()}).eq("id","default");
+  }catch(e){}
+}
+function turnoARemoto(t){return {id:t.id,fecha:t.fecha,hora:t.hora,barbero:t.barbero,cliente:t.cliente,telefono:t.telefono||null,servicio:t.servicio,estado:t.estado,origen:t.origen||"app",servicio_id:t.servicioId||null};}
+function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.barbero,cliente:r.cliente,telefono:r.telefono,servicio:r.servicio,estado:r.estado,origen:r.origen,servicioId:r.servicio_id};}
+async function cargarTurnosRemotos(){
+  if(!sb)return false;
+  try{
+    const {data,error}=await sb.from("turnos").select("*").gte("fecha",today()).order("fecha").order("hora");
+    if(error||!data)return false;
+    DB.turnos=data.map(turnoDeRemoto);
+    return true;
+  }catch(e){return false;}
+}
+async function guardarTurnoRemoto(t){
+  if(!sb)return;
+  try{await sb.from("turnos").upsert(turnoARemoto(t));}catch(e){}
+}
+async function borrarTurnoRemoto(id){
+  if(!sb)return;
+  try{await sb.from("turnos").delete().eq("id",id);}catch(e){}
+}
 
 /* ---------- default data (plantilla en blanco) ---------- */
 function defaultDB(){
@@ -360,7 +404,7 @@ function leerFotoComoDataURL(file,maxSize,cb){
 let toastT;function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1700);}
 function val(s){const e=$(s);return e?String(e.value).trim():"";}
 function num(s){const e=$(s);return e?Math.max(0,+e.value||0):0;}
-function commit(msg){save();paintBrand();render();if(msg)toast(msg);}
+function commit(msg){save();paintBrand();render();guardarConfigRemota();if(msg)toast(msg);}
 function paintBrand(){
   document.title=(DB.nombre||"Mi Barbería")+" · Gestión de Barbería";
   const l=document.getElementById("topbar-logo-img");if(l)l.src=DB.logo||DEFAULT_LOGO;
@@ -589,6 +633,7 @@ function dateNav(){
     <span class="lbl">${esc(fdateLong(f))}${esHoy?' <span class="today">HOY</span>':""}</span>
     <button data-dnav="1" title="Día siguiente">›</button>
     ${esHoy?"":'<button class="today" data-dnav="hoy" style="height:34px">Volver a hoy</button>'}
+    <button id="agenda-refresh" title="Traer los turnos reservados desde la web" style="margin-left:auto">🔄 Actualizar</button>
   </div>`;
 }
 function overlaps(list){
@@ -636,23 +681,37 @@ function bindAgenda(){
     S.agendaFecha=d==="hoy"?today():shiftDate(S.agendaFecha,+d);
     render();
   });
+  const rf=$("#agenda-refresh");if(rf)rf.onclick=async()=>{
+    rf.textContent="Actualizando…";
+    const ok=await cargarTurnosRemotos();
+    save();render();
+    if(ok)toast("Turnos actualizados ✓");else toast("No se pudo conectar — mostrando lo guardado en este dispositivo");
+  };
   const a=$("#t-add");if(a)a.onclick=()=>{
     const fecha=val("#t-fecha"),hora=val("#t-hora"),barbero=val("#t-barb"),cli=val("#t-cli")||"Cliente";
     const choque=DB.turnos.find(t=>t.fecha===fecha&&t.hora===hora&&t.barbero===barbero);
     if(choque&&!confirm("⚠ "+esc(barbero)+" ya tiene un turno ese día a las "+hora+" (con "+esc(choque.cliente)+").\n\n¿Agendar igual?"))return;
-    DB.turnos.push({id:pid(),fecha,hora,barbero,cliente:cli,servicio:val("#t-serv"),estado:"pend"});
+    const nuevo={id:pid(),fecha,hora,barbero,cliente:cli,servicio:val("#t-serv"),estado:"pend",origen:"app"};
+    DB.turnos.push(nuevo);
     S.agendaFecha=fecha;
     commit("Turno agendado ✓");
+    guardarTurnoRemoto(nuevo);
   };
   document.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{
     const t=DB.turnos.find(x=>x.id===b.dataset.tg);
-    if(t.estado==="done"){t.estado="pend";commit("");return;}
+    if(t.estado==="done"){t.estado="pend";commit("");guardarTurnoRemoto(t);return;}
     const sel=document.querySelector(`[data-turnopago="${t.id}"]`);
     crearServicioDesdeTurno(t,sel?sel.value:"Efectivo");
     t.estado="done";
     commit("Atendido — cargado en Finanzas ✓");
+    guardarTurnoRemoto(t);
   });
-  document.querySelectorAll("[data-delt]").forEach(b=>b.onclick=()=>{DB.turnos=DB.turnos.filter(x=>x.id!==b.dataset.delt);commit("Eliminado");});
+  document.querySelectorAll("[data-delt]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.delt;
+    DB.turnos=DB.turnos.filter(x=>x.id!==id);
+    commit("Eliminado");
+    borrarTurnoRemoto(id);
+  });
 }
 
 /* ================= OWNER: panel ================= */
@@ -729,10 +788,10 @@ function tWebVirtual(){
   const serviciosTxt=visibles.map(p=>`${p.tipo}${p.precio>0?" — "+money(p.precio):""}`).join("\n");
   const diasTxt=h.dias.length===7?"Todos los días":DIAS_SEM.filter((d,i)=>h.dias.includes(i)).join(", ")||"Sin días configurados";
   const textoCompartir=`${DB.nombre||"Mi Barbería"}\n${diasTxt} · ${h.apertura} a ${h.cierre}\n\n${serviciosTxt}`;
-  return head("Web virtual","Configurá cómo se va a ver tu página de reservas online. Esto todavía es una vista previa — el link público real necesita conectar una base de datos en la nube.",true)
-  +`<div class="warnbox">🌐 <b>Vista previa, no es un link público todavía.</b> Acá configurás los datos que se van a usar cuando activemos las reservas online reales. Mientras tanto, usá el texto de abajo para compartir por WhatsApp o redes.</div>
+  return head("Web virtual","Configurá cómo se va a ver tu página de reservas online.",true)
+  +`<div class="warnbox">🌐 <b>Reservas online activas (en modo de prueba).</b> El link ya funciona de verdad entre dispositivos distintos — un turno reservado desde cualquier celular aparece en tu Agenda. Todavía no tiene un login propio para el dueño, así que por ahora conviene compartirlo solo para probarlo, no publicarlo mientras se termina de afianzar.</div>
   <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
-    <div><h3 style="margin-bottom:2px">👁 Probá cómo se vería para un cliente</h3><div class="sub" style="margin-bottom:0">Abre la página de reservas con tus datos actuales (horario, servicios, barberos). Guarda el turno en este mismo dispositivo — todavía no llega a otro celular.</div></div>
+    <div><h3 style="margin-bottom:2px">👁 Probá cómo se vería para un cliente</h3><div class="sub" style="margin-bottom:0">Abrí la página de reservas — funciona desde cualquier dispositivo con internet, no hace falta que sea el mismo.</div></div>
     <a href="reservar.html" target="_blank" class="savebtn" style="text-decoration:none;white-space:nowrap">Ver página de reservas →</a>
   </div>
   <div class="card"><h3>Horario de atención</h3>
@@ -1030,4 +1089,13 @@ if(DB.horario===undefined)DB.horario={apertura:"09:00",cierre:"20:00",duracion:3
 // pintar marca (nombre/logo) en el topbar y en el título de la pestaña
 paintBrand();
 render();
+// al conectar por primera vez, traemos lo que ya haya en la nube (por si se cargó desde otro dispositivo)
+// y de paso empujamos el estado actual, así la página de reservas siempre tiene algo para mostrar
+(async function syncInicial(){
+  if(!sb)return;
+  await cargarConfigRemota();
+  await cargarTurnosRemotos();
+  save();paintBrand();render();
+  guardarConfigRemota();
+})();
 </script>
