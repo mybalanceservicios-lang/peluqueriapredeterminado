@@ -43,3 +43,20 @@ create policy "turnos select publico" on turnos for select using (true);
 create policy "turnos insert publico" on turnos for insert with check (true);
 create policy "turnos update publico" on turnos for update using (true);
 create policy "turnos delete publico" on turnos for delete using (true);
+
+-- Clientes: ficha simple (nombre + teléfono) para poder mandar recordatorios por WhatsApp.
+-- Es una tabla aparte de turnos porque turnos sólo guarda los próximos (fecha >= hoy);
+-- así los clientes quedan guardados aunque sus turnos pasados ya no aparezcan en la agenda.
+create table if not exists clientes (
+  telefono text primary key,
+  nombre text not null,
+  notas text,
+  creado_en timestamptz default now(),
+  actualizado_en timestamptz default now()
+);
+
+alter table clientes enable row level security;
+
+create policy "clientes select publico" on clientes for select using (true);
+create policy "clientes insert publico" on clientes for insert with check (true);
+create policy "clientes update publico" on clientes for update using (true);

@@ -6,7 +6,7 @@ Sistema de gestión para barberías: `index.html` (privado, para el dueño y bar
 Abrí `index.html` en el navegador para el sistema de gestión, y `reservar.html` para la página de reservas. Turnos y configuración del negocio (horario, servicios visibles, barberos) se sincronizan con Supabase — ver "Backend" abajo. El resto de los datos (servicios cargados, ventas, gastos, cierres) todavía vive solo en `localStorage` de ese dispositivo.
 
 ## Backend (Supabase)
-`supabase-schema.sql` tiene el SQL para crear las tablas `config` (una fila con los datos del negocio) y `turnos`. Hay que:
+`supabase-schema.sql` tiene el SQL para crear las tablas `config` (una fila con los datos del negocio), `turnos` y `clientes` (nombre + teléfono, para poder mandar recordatorios). Hay que:
 1. Crear un proyecto en [supabase.com](https://supabase.com).
 2. Pegar y ejecutar `supabase-schema.sql` en el SQL Editor del proyecto.
 3. Reemplazar `SUPABASE_URL` y `SUPABASE_ANON_KEY` (la "publishable key", nunca la "secret key") al principio del script de `index.html` y de `reservar.html`.
@@ -16,9 +16,9 @@ Abrí `index.html` en el navegador para el sistema de gestión, y `reservar.html
 ## Qué incluye
 Para el dueño, la navegación está organizada en 3 secciones:
 
-- **🌐 Web virtual** — configuración de horario de atención, qué servicios mostrar, vista previa de la vidriera online, y texto listo para compartir por WhatsApp/Instagram. Desde acá hay un link a `reservar.html`, que ya funciona de verdad entre dispositivos distintos (un turno reservado desde un celular aparece en la Agenda de otra compu).
-- **🗓 Agenda** — turnos con detección de choques de horario. Al marcar un turno como "Atendido" (eligiendo el medio de pago), se genera automáticamente el corte correspondiente en Finanzas — no hace falta cargarlo dos veces. Los registros vinculados muestran un 🔗. Un botón "🔄 Actualizar" trae los turnos reservados desde la web.
-- **💰 Finanzas** — Panel (KPIs y gráficos), Cargar (cortes/productos), Servicios, Gráficos, **Cierre de caja diario** (registro inmutable por día con historial y exportación a CSV listo para Excel), Barberos y comisiones, Precios, Gastos y sueldos, Stock.
+- **🌐 Web virtual** — configuración de horario de atención, qué servicios mostrar, vista previa de la vidriera online, y texto listo para compartir por WhatsApp/Instagram. Desde acá hay un link a `reservar.html`, que ya funciona de verdad entre dispositivos distintos (un turno reservado desde un celular aparece en la Agenda de otra compu). El teléfono es obligatorio para reservar, y tiene una protección básica anti-abuso (bloquea si un mismo número ya tiene 3+ turnos pendientes sin usar, más un campo "honeypot" contra bots).
+- **🗓 Agenda** — turnos con detección de choques de horario, teléfono opcional al cargar a mano, y un botón "💬 WhatsApp" por turno para mandar un recordatorio con mensaje pre-armado. Al marcar un turno como "Atendido" (eligiendo el medio de pago), se genera automáticamente el corte correspondiente en Finanzas — no hace falta cargarlo dos veces. Los registros vinculados muestran un 🔗. Un botón "🔄 Actualizar" trae los turnos y clientes desde la web.
+- **💰 Finanzas** — Panel (KPIs y gráficos), Cargar (cortes/productos), Servicios, Gráficos, **Cierre de caja diario** (registro inmutable por día con historial y exportación a CSV listo para Excel), **Clientes** (nombre + teléfono guardados automáticamente al reservar, con botón de WhatsApp), Barberos y comisiones, Precios, Gastos y sueldos, Stock.
 
 Selector de perfil por barbero + modo Dueño con PIN. Configuración (nombre, logo, clave, respaldo JSON) accesible desde el ícono ⚙ junto al perfil.
 

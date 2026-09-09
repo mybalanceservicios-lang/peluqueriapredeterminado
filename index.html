@@ -263,6 +263,19 @@ async function borrarTurnoRemoto(id){
   if(!sb)return;
   try{await conTimeout(sb.from("turnos").delete().eq("id",id));}catch(e){}
 }
+async function cargarClientesRemotos(){
+  if(!sb)return false;
+  try{
+    const {data,error}=await conTimeout(sb.from("clientes").select("*").order("nombre"));
+    if(error||!data)return false;
+    DB.clientes=data.map(c=>({telefono:c.telefono,nombre:c.nombre,notas:c.notas||""}));
+    return true;
+  }catch(e){return false;}
+}
+async function guardarClienteRemoto(nombre,telefono){
+  if(!sb||!telefono)return;
+  try{await conTimeout(sb.from("clientes").upsert({telefono,nombre,actualizado_en:new Date().toISOString()}));}catch(e){}
+}
 
 /* ---------- default data (plantilla en blanco) ---------- */
 function defaultDB(){
@@ -283,12 +296,26 @@ function defaultDB(){
     gastos:[],
     turnos:[],
     cierres:[],
+    clientes:[],
   };
 }
 function pid(){return Math.random().toString(36).slice(2,9);}
+function telefonoWhatsapp(tel){
+  let d=String(tel||"").replace(/\D/g,"");
+  if(!d)return null;
+  if(d.startsWith("54"))return d;
+  if(d.startsWith("0"))d=d.slice(1);
+  return "549"+d;
+}
+function upsertClienteLocal(nombre,telefono){
+  if(!telefono)return;
+  const existente=DB.clientes.find(c=>c.telefono===telefono);
+  if(existente)existente.nombre=nombre;
+  else DB.clientes.push({telefono,nombre,notas:""});
+}
 
 /* ---------- state ---------- */
-const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today()};
+const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:""};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
 
@@ -484,7 +511,7 @@ const BARB_NAV=[["cargar","✂","Cargar"],["mishist","📋","Mi historial"],["mi
 const OWNER_NAV=[["web","🌐","Web virtual"],["agenda","🗓","Agenda"],["finanzas","💰","Finanzas"]];
 const FIN_SUB=[
   ["panel","◧","Panel"],["cargar","✂","Cargar"],["servicios","📋","Servicios"],["graficos","◔","Gráficos"],
-  ["cierre","🧾","Cierre diario"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
+  ["cierre","🧾","Cierre diario"],["clientes","👤","Clientes"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
   ["gastos","⬇","Gastos y sueldos"],["stock","◭","Stock / Productos"]];
 function viewApp(){
   const isOwner=S.profile.type==="owner";
@@ -503,7 +530,7 @@ function renderTab(){
   if(S.tab==="web")return tWebVirtual();
   if(S.tab==="agenda")return tAgenda();
   if(S.tab==="config")return tConfig();
-  const FR={panel:tPanel,cargar:tCargar,servicios:tServicios,graficos:tGraficos,cierre:tCierre,barberos:tBarberos,precios:tPrecios,gastos:tGastos,stock:tStock};
+  const FR={panel:tPanel,cargar:tCargar,servicios:tServicios,graficos:tGraficos,cierre:tCierre,clientes:tClientes,barberos:tBarberos,precios:tPrecios,gastos:tGastos,stock:tStock};
   if(!FR[S.subFin])S.subFin="panel";
   return (FR[S.subFin]||tPanel)();
 }
@@ -659,6 +686,7 @@ function agendaForm(fixedBarbero){
     <div class="ff"><label>Fecha</label><input type="date" id="t-fecha" value="${S.agendaFecha}"></div>
     <div class="ff"><label>Hora</label><input type="time" id="t-hora" value="10:00"></div>
     <div class="ff grow"><label>Cliente</label><input id="t-cli" placeholder="Nombre"></div>
+    <div class="ff"><label>Teléfono (opcional)</label><input id="t-tel" placeholder="Ej: 11 5555-5555"></div>
     <div class="ff"><label>Servicio</label><select id="t-serv">${DB.precios.map(p=>`<option>${esc(p.tipo)}</option>`).join("")}</select></div>
     ${fixedBarbero?`<input type="hidden" id="t-barb" value="${esc(fixedBarbero)}">`:`<div class="ff"><label>Barbero</label><select id="t-barb">${DB.barberos.map(b=>`<option>${esc(b.n)}</option>`).join("")}</select></div>`}
     <button class="addbtn" id="t-add">＋ Agendar</button>
@@ -670,9 +698,14 @@ function agendaTable(list,showBarb){
     const estadoCell=t.estado==="done"
       ?`<span class="pill done" data-tg="${t.id}" style="cursor:pointer" title="Volver a pendiente (no borra lo ya cobrado)">Atendido ✓</span>`
       :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
-    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span title="Reservado desde la página de reservas">🌐</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td><button class="del" data-delt="${t.id}">✕</button></td></tr>`;
+    const wa=telefonoWhatsapp(t.telefono);
+    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeRecordatorio(t))}" target="_blank" rel="noopener" title="Enviar recordatorio por WhatsApp">💬 WhatsApp</a>`:"";
+    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span title="Reservado desde la página de reservas">🌐</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td style="display:flex;gap:6px;align-items:center">${waBtn}<button class="del" data-delt="${t.id}">✕</button></td></tr>`;
   }).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
   return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="sub" style="margin-top:10px">Al marcar "Atendido" se carga solo en Finanzas con el medio de pago elegido — no hace falta cargarlo de nuevo en "Cargar".</div></div>`;
+}
+function mensajeRecordatorio(t){
+  return `Hola ${t.cliente}! Te escribimos de ${DB.nombre||"la barbería"} para recordarte tu turno de ${t.servicio} el ${fdate(t.fecha)} a las ${t.hora}. ¡Te esperamos!`;
 }
 function crearServicioDesdeTurno(t,medio){
   if(t.servicioId)return;
@@ -690,19 +723,20 @@ function bindAgenda(){
   });
   const rf=$("#agenda-refresh");if(rf)rf.onclick=async()=>{
     rf.textContent="Actualizando…";
-    const ok=await cargarTurnosRemotos();
+    const [ok]=await Promise.all([cargarTurnosRemotos(),cargarClientesRemotos()]);
     save();render();
     if(ok)toast("Turnos actualizados ✓");else toast("No se pudo conectar — mostrando lo guardado en este dispositivo");
   };
   const a=$("#t-add");if(a)a.onclick=()=>{
-    const fecha=val("#t-fecha"),hora=val("#t-hora"),barbero=val("#t-barb"),cli=val("#t-cli")||"Cliente";
+    const fecha=val("#t-fecha"),hora=val("#t-hora"),barbero=val("#t-barb"),cli=val("#t-cli")||"Cliente",tel=val("#t-tel").trim();
     const choque=DB.turnos.find(t=>t.fecha===fecha&&t.hora===hora&&t.barbero===barbero);
     if(choque&&!confirm("⚠ "+esc(barbero)+" ya tiene un turno ese día a las "+hora+" (con "+esc(choque.cliente)+").\n\n¿Agendar igual?"))return;
-    const nuevo={id:pid(),fecha,hora,barbero,cliente:cli,servicio:val("#t-serv"),estado:"pend",origen:"app"};
+    const nuevo={id:pid(),fecha,hora,barbero,cliente:cli,telefono:tel||null,servicio:val("#t-serv"),estado:"pend",origen:"app"};
     DB.turnos.push(nuevo);
     S.agendaFecha=fecha;
     commit("Turno agendado ✓");
     guardarTurnoRemoto(nuevo);
+    if(tel){guardarClienteRemoto(cli,tel);upsertClienteLocal(cli,tel);}
   };
   document.querySelectorAll("[data-tg]").forEach(b=>b.onclick=()=>{
     const t=DB.turnos.find(x=>x.id===b.dataset.tg);
@@ -972,6 +1006,24 @@ function bindBarberos(){
   });
 }
 
+/* ================= OWNER: clientes ================= */
+function tClientes(){
+  const q=(S.clQ||"").toLowerCase().trim();
+  const list=DB.clientes.slice().filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.telefono.includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const rows=list.length?list.map(c=>{
+    const wa=telefonoWhatsapp(c.telefono);
+    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent("Hola "+c.nombre+"! Te escribimos de "+(DB.nombre||"la barbería")+".")}" target="_blank" rel="noopener">💬 WhatsApp</a>`:"";
+    return `<div class="perm-row"><span class="pn">${esc(c.nombre)}<small>${esc(c.telefono)}</small></span>${waBtn}</div>`;
+  }).join(""):`<div class="empty">${q?"Sin resultados para esa búsqueda.":"Todavía no hay clientes guardados. Se cargan solos cuando alguien reserva desde la web o cuando cargás un teléfono en Agenda."}</div>`;
+  return head("Clientes","Nombres y teléfonos guardados automáticamente desde las reservas.",true)
+  +`<div class="card"><div class="addform" style="margin-bottom:0"><div class="ff grow"><label>Buscar</label><input id="cl-buscar" placeholder="Nombre o teléfono" value="${esc(S.clQ||"")}"></div><button class="addbtn" id="cl-filtrar">Buscar</button>${q?'<button class="tbtn" id="cl-limpiar" style="padding:11px 16px">Ver todos</button>':""}</div></div>
+  <div class="card fade"><h3>${list.length} cliente${list.length===1?"":"s"}</h3>${rows}</div>`;
+}
+function bindClientes(){
+  const f=$("#cl-filtrar");if(f)f.onclick=()=>{S.clQ=val("#cl-buscar");render();};
+  const l=$("#cl-limpiar");if(l)l.onclick=()=>{S.clQ="";render();};
+}
+
 /* ================= OWNER: precios ================= */
 function tPrecios(){
   const rows=DB.precios.map((p,i)=>`<div class="perm-row"><span class="pn">${esc(p.tipo)}</span><div style="display:flex;align-items:center;gap:6px"><span style="color:var(--ink-3)">$</span><input class="miniin" id="pr-${i}" type="number" min="0" value="${p.precio}"><button class="del" data-delpr="${esc(p.tipo)}" title="Eliminar servicio">✕</button></div></div>`).join("");
@@ -1071,7 +1123,7 @@ function render(){
     document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
     document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
     // per-tab bindings
-    bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();
+    bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
     $("#foot").textContent="Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
   }
 }
@@ -1083,6 +1135,7 @@ if(!DB){DB=defaultDB();save();}
 if(DB.nombre===undefined)DB.nombre="Mi Barbería";
 if(DB.logo===undefined)DB.logo=null;
 if(DB.cierres===undefined)DB.cierres=[];
+if(DB.clientes===undefined)DB.clientes=[];
 if(DB.horario===undefined)DB.horario={apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]};
 (DB.precios||[]).forEach(p=>{if(p.visible===undefined)p.visible=true;});
 (DB.barberos||[]).forEach(b=>{if(b.foto===undefined)b.foto=null;});
@@ -1100,7 +1153,7 @@ render();
 // y de paso empujamos el estado actual, así la página de reservas siempre tiene algo para mostrar
 (async function syncInicial(){
   if(!sb)return;
-  await Promise.all([cargarConfigRemota(),cargarTurnosRemotos()]);
+  await Promise.all([cargarConfigRemota(),cargarTurnosRemotos(),cargarClientesRemotos()]);
   save();paintBrand();render();
   guardarConfigRemota();
 })();

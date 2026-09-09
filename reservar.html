@@ -147,6 +147,20 @@ async function crearTurnoRemoto(t){
     return !error;
   }catch(e){return false;}
 }
+async function demasiadosPendientes(telefono){
+  if(!sb)return false;
+  try{
+    const {data,error}=await conTimeout(sb.from("turnos").select("id").eq("telefono",telefono).eq("estado","pend").gte("fecha",today()).limit(3));
+    if(error)return false;
+    return data&&data.length>=3;
+  }catch(e){return false;}
+}
+async function guardarClienteRemoto(nombre,telefono){
+  if(!sb||!telefono)return;
+  try{
+    await conTimeout(sb.from("clientes").upsert({telefono,nombre,actualizado_en:new Date().toISOString()}));
+  }catch(e){}
+}
 
 function pid(){return Math.random().toString(36).slice(2,9);}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
@@ -252,19 +266,30 @@ function renderDatos(){
       <div><span>Hora</span><b>${S.hora}</b></div>
     </div>
     <div class="bf"><label>Nombre</label><input id="d-nombre" placeholder="Tu nombre" value="${esc(S.nombre)}"></div>
-    <div class="bf"><label>Teléfono</label><input id="d-tel" placeholder="Ej: 11 5555-5555" value="${esc(S.telefono)}"></div>
+    <div class="bf"><label>Teléfono</label><input id="d-tel" type="tel" placeholder="Ej: 11 5555-5555" value="${esc(S.telefono)}"></div>
+    <div style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true"><label>No completar</label><input id="d-web" name="website" tabindex="-1" autocomplete="off"></div>
     <button class="confirmar" id="confirmar">Confirmar reserva</button>
   </div>`;
   $("#back3").onclick=()=>{S.step=3;render();};
   const btn=$("#confirmar");
-  const chequear=()=>{btn.disabled=!val("#d-nombre").trim();};
+  const telValido=()=>val("#d-tel").replace(/\D/g,"").length>=8;
+  const chequear=()=>{btn.disabled=!val("#d-nombre").trim()||!telValido();};
   $("#d-nombre").oninput=chequear;
+  $("#d-tel").oninput=chequear;
   chequear();
   btn.onclick=async()=>{
     const nombre=val("#d-nombre").trim();
-    if(!nombre)return;
-    S.nombre=nombre;S.telefono=val("#d-tel").trim();
+    const telefono=val("#d-tel").trim();
+    if(!nombre||!telValido())return;
+    if(val("#d-web").trim()){alert("No se pudo guardar la reserva. Probá de nuevo.");return;}
+    S.nombre=nombre;S.telefono=telefono;
     btn.disabled=true;btn.textContent="Reservando…";
+    const abuso=await demasiadosPendientes(telefono);
+    if(abuso){
+      btn.disabled=false;btn.textContent="Confirmar reserva";
+      alert("Este número ya tiene varios turnos pendientes sin usar. Si sos vos, contactanos directamente para coordinar.");
+      return;
+    }
     const choque=await hayChoque(S.fecha,S.hora,S.barbero);
     if(choque){
       btn.disabled=false;btn.textContent="Confirmar reserva";
@@ -280,6 +305,7 @@ function renderDatos(){
       return;
     }
     DB.turnos.push(nuevo);
+    guardarClienteRemoto(nombre,telefono);
     S.step=5;render();
   };
 }
