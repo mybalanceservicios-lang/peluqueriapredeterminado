@@ -646,13 +646,13 @@ function viewQuickSwitch(){
     <h2>¿Quién está cargando?</h2><p class="sub">Elegí el perfil para cargar rápido. Podés cambiar cuando quieras sin volver a loguearte.</p>
     <div class="profgrid">
       ${DB.barberos.map(b=>`<button class="profcard" data-qs-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
-      <button class="profcard owner" data-qs-owner="1"><span class="pav">D</span><b>Dueño</b><small>Panel completo</small></button>
+      <button class="profcard owner" data-qs-owner="1"><span class="pav">D</span><b>Dueño</b><small>Requiere clave</small></button>
     </div>
   </div></div>`;
 }
 function bindQuickSwitch(){
   document.querySelectorAll("[data-qs-barb]").forEach(b=>b.onclick=()=>{S.profile={type:"barber",name:b.dataset.qsBarb};S.tab="cargar";render();});
-  const ow=$("[data-qs-owner]");if(ow)ow.onclick=()=>{S.profile={type:"owner"};S.tab="finanzas";S.subFin="panel";render();};
+  const ow=$("[data-qs-owner]");if(ow)ow.onclick=()=>{S.pinBuf="";S.pinErr="";S.profile={type:"pin"};render();};
 }
 
 /* ================= WHO SLOT ================= */
@@ -664,11 +664,14 @@ function renderWho(){
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
   const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
   const esCuentaOwner=!!(sb&&S.authUser&&S.perfil&&S.perfil.tipo==="owner");
-  const switchBtn=esCuentaOwner?`<button class="swap" id="switchbtn">Cambiar perfil</button>`:"";
-  const swapLabel=sb&&S.authUser?"Cerrar sesión":"Cambiar";
-  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div>${switchBtn}<button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
+  // la cuenta del dueño cierra sesión desde Configuración (evita tocarlo sin querer al lado de "Cambiar perfil");
+  // un barbero con cuenta propia no tiene Configuración, así que a él se le deja "Cerrar sesión" acá.
+  const accionBtn=esCuentaOwner
+    ?`<button class="swap" id="switchbtn">Cambiar perfil</button>`
+    :`<button class="swap" id="swapbtn">${sb&&S.authUser?"Cerrar sesión":"Cambiar"}</button>`;
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div>${accionBtn}</div></div>`;
   const sw=$("#switchbtn");if(sw)sw.onclick=()=>{S.profile=null;render();};
-  $("#swapbtn").onclick=async()=>{
+  const swap=$("#swapbtn");if(swap)swap.onclick=async()=>{
     if(sb&&S.authUser){await sb.auth.signOut();}
     else{S.profile=null;S.ownerUnlocked=false;render();}
   };
@@ -1254,7 +1257,8 @@ function tConfig(){
   const usaLoginReal=!!(sb&&S.authUser);
   const seguridadCard=usaLoginReal
     ?`<div class="card"><h3>Tu sesión</h3><div class="sub">Entraste como <b>${esc(S.authUser.email)}</b>.</div><button class="tbtn" id="logout" style="border-color:var(--crit);color:var(--crit)">Cerrar sesión</button></div>`
-    :`<div class="card"><h3>Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
+    :"";
+  const pinCard=`<div class="card"><h3>Clave para entrar como Dueño</h3><div class="sub">${usaLoginReal?'Se pide al elegir "Dueño" desde el selector rápido de perfiles, además de tu login.':"Es el código de 4 dígitos para entrar a este modo"}</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
   const invitarCard=(usaLoginReal&&S.profile.type==="owner")
     ?`<div class="card"><h3>Invitar a alguien</h3><div class="sub">Generá un código y pasáselo (WhatsApp, en persona, como quieras). Con eso crea su propio acceso desde este sistema, sin que nadie tenga que entrar a Supabase.</div>
       <div class="addform">
@@ -1282,6 +1286,7 @@ function tConfig(){
       </div>
     </div></div>
   ${seguridadCard}
+  ${pinCard}
   ${invitarCard}
   ${accesosCard}
   <div class="card"><h3>Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">Descargar respaldo</button><label class="tbtn" style="cursor:pointer">Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
@@ -1340,6 +1345,7 @@ function render(){
     if(!S.authUser){root.innerHTML=viewAuth();bindAuth();$("#foot").textContent="";return;}
     if(!S.perfil){root.innerHTML=viewOnboarding();bindOnboarding();$("#foot").textContent="";return;}
     if(S.perfil.tipo==="owner"&&!S.profile){root.innerHTML=viewQuickSwitch();bindQuickSwitch();$("#foot").textContent="";return;}
+    if(S.profile&&S.profile.type==="pin"){root.innerHTML=viewPin();bindPin();$("#foot").textContent="";return;}
     if(!S.profile)aplicarPerfil();
   }else{
     // sin backend configurado (plantilla sin conectar todavía): selector local + PIN, como antes.
