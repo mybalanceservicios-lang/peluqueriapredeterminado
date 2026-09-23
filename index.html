@@ -277,6 +277,35 @@ async function guardarClienteRemoto(nombre,telefono){
   try{await conTimeout(sb.from("clientes").upsert({telefono,nombre,actualizado_en:new Date().toISOString()}));}catch(e){}
 }
 
+/* ---------- perfiles (login real: cada persona entra con su mail y el sistema recuerda si es dueño o qué barbero es) ---------- */
+async function cargarPerfil(uid){
+  if(!sb)return null;
+  try{
+    const {data,error}=await conTimeout(sb.from("perfiles").select("*").eq("id",uid).maybeSingle());
+    if(error||!data)return null;
+    return data;
+  }catch(e){return null;}
+}
+async function guardarPerfil(uid,email,tipo,nombre){
+  if(!sb)return false;
+  try{
+    const {error}=await conTimeout(sb.from("perfiles").upsert({id:uid,email,tipo,nombre:nombre||null}));
+    return !error;
+  }catch(e){return false;}
+}
+async function cargarPerfilesRemotos(){
+  if(!sb)return [];
+  try{
+    const {data,error}=await conTimeout(sb.from("perfiles").select("*").order("tipo",{ascending:false}));
+    if(error||!data)return [];
+    return data;
+  }catch(e){return [];}
+}
+async function borrarPerfilRemoto(id){
+  if(!sb)return false;
+  try{const {error}=await conTimeout(sb.from("perfiles").delete().eq("id",id));return !error;}catch(e){return false;}
+}
+
 /* ---------- default data (plantilla en blanco) ---------- */
 function defaultDB(){
   return {
@@ -315,7 +344,8 @@ function upsertClienteLocal(nombre,telefono){
 }
 
 /* ---------- state ---------- */
-const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:""};
+const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
+  authReady:false,authUser:null,authErr:"",authBusy:false,perfil:null,onbNombreErr:"",accesos:[]};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
 
@@ -494,6 +524,74 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="Escape"){pinPress("clear");}
 });
 
+/* ================= LOGIN REAL (Supabase Auth) — reemplaza al selector+PIN cuando hay backend conectado ================= */
+function viewAuth(){
+  return `<div class="pinstage fade"><div class="pincard">
+    <div class="lock">🔒</div><h3>Iniciar sesión</h3>
+    <p>Entrá con el mail y la clave que te dio el dueño de la barbería.</p>
+    <div class="ff" style="text-align:left;margin-bottom:10px"><label>Email</label><input id="auth-email" type="email" placeholder="vos@ejemplo.com" autocomplete="username"></div>
+    <div class="ff" style="text-align:left;margin-bottom:14px"><label>Contraseña</label><input id="auth-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="savebtn" id="auth-submit" style="width:100%;${S.authBusy?"opacity:.6":""}" ${S.authBusy?"disabled":""}>${S.authBusy?"Un momento…":"Entrar"}</button>
+    <div class="pinerr">${esc(S.authErr)}</div>
+    <p style="font-size:11.5px;color:var(--ink-3);margin-top:16px">¿No tenés acceso todavía? Pedíselo al dueño de la barbería.</p>
+  </div></div>`;
+}
+function bindAuth(){
+  const doSubmit=async()=>{
+    if(S.authBusy)return;
+    const email=val("#auth-email"),pass=val("#auth-pass");
+    if(!email||!pass){S.authErr="Completá email y contraseña";render();return;}
+    S.authErr="";S.authBusy=true;render();
+    const{error}=await sb.auth.signInWithPassword({email,password:pass});
+    S.authBusy=false;
+    if(error){S.authErr="No pudimos iniciar sesión. Revisá el mail y la clave.";render();return;}
+    // el resto (traer datos + resolver perfil) lo dispara onAuthStateChange
+  };
+  $("#auth-submit").onclick=doSubmit;
+  $("#auth-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doSubmit();});
+  $("#auth-email").addEventListener("keydown",e=>{if(e.key==="Enter")doSubmit();});
+}
+
+/* ================= ONBOARDING (primera vez que este mail entra: elige quién es) ================= */
+function viewOnboarding(){
+  return `<div class="selstage fade"><div class="big-logo"><img src="${DB.logo||DEFAULT_LOGO}" alt="Logo"></div>
+    <h2>¡Bienvenido/a!</h2><p class="sub">Es tu primera vez con este mail — elegí quién sos. La próxima vez que entres, vas a ir directo a tu vista.</p>
+    <div class="profgrid">
+      ${DB.barberos.map(b=>`<button class="profcard" data-onb-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
+      <button class="profcard owner" data-onb-owner="1"><span class="pav">🔒</span><b>Dueño</b><small>Acceso completo</small></button>
+    </div>
+    <div class="addform" style="margin-top:18px;max-width:480px">
+      <div class="ff grow"><label>¿No estás en la lista? Escribí tu nombre</label><input id="onb-nuevo" placeholder="Tu nombre"></div>
+      <button class="addbtn" id="onb-nuevo-add">Sumarme como barbero</button>
+    </div>
+    ${S.authBusy?'<p class="sub" style="margin-top:14px">Guardando…</p>':""}
+  </div></div>`;
+}
+function bindOnboarding(){
+  document.querySelectorAll("[data-onb-barb]").forEach(b=>b.onclick=()=>completarOnboarding("barber",b.dataset.onbBarb));
+  const ow=$("[data-onb-owner]");if(ow)ow.onclick=()=>completarOnboarding("owner",null);
+  const add=$("#onb-nuevo-add");if(add)add.onclick=()=>{
+    const n=val("#onb-nuevo");if(!n)return toast("Escribí tu nombre");
+    if(!DB.barberos.find(b=>b.n===n)){DB.barberos.push({n,com:0.5,foto:null});save();guardarConfigRemota();}
+    completarOnboarding("barber",n);
+  };
+}
+async function completarOnboarding(tipo,nombre){
+  if(S.authBusy)return;
+  S.authBusy=true;render();
+  const ok=await guardarPerfil(S.authUser.id,S.authUser.email,tipo,nombre);
+  S.authBusy=false;
+  if(!ok){toast("No se pudo guardar, probá de nuevo");render();return;}
+  S.perfil={tipo,nombre,email:S.authUser.email};
+  aplicarPerfil();
+  render();
+}
+function aplicarPerfil(){
+  if(!S.perfil)return;
+  if(S.perfil.tipo==="owner"){S.profile={type:"owner"};S.tab="finanzas";S.subFin="panel";}
+  else{S.profile={type:"barber",name:S.perfil.nombre};S.tab="cargar";}
+}
+
 /* ================= WHO SLOT ================= */
 function renderWho(){
   const slot=$("#whoslot");
@@ -502,8 +600,12 @@ function renderWho(){
   const name=isOwner?"Dueño":S.profile.name;
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
   const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
-  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">Cambiar</button></div></div>`;
-  $("#swapbtn").onclick=()=>{S.profile=null;S.ownerUnlocked=false;render();};
+  const swapLabel=sb&&S.authUser?"Cerrar sesión":"Cambiar";
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
+  $("#swapbtn").onclick=async()=>{
+    if(sb&&S.authUser){await sb.auth.signOut();}
+    else{S.profile=null;S.ownerUnlocked=false;render();}
+  };
 }
 
 /* ================= APP SHELL ================= */
@@ -1083,6 +1185,15 @@ function bindStock(){
 
 /* ================= OWNER: config ================= */
 function tConfig(){
+  const usaLoginReal=!!(sb&&S.authUser);
+  const seguridadCard=usaLoginReal
+    ?`<div class="card"><h3>🔑 Tu sesión</h3><div class="sub">Entraste como <b>${esc(S.authUser.email)}</b>.</div><button class="tbtn" id="logout" style="border-color:var(--crit);color:var(--crit)">Cerrar sesión</button></div>`
+    :`<div class="card"><h3>🔑 Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
+  const accesosCard=(usaLoginReal&&S.profile.type==="owner")
+    ?`<div class="card"><h3>👥 Accesos (login por mail)</h3><div class="sub">Para sumar a alguien, creale un usuario en el panel de Supabase (Authentication → Users → Add user) con su mail y una clave, y pasásela. La primera vez que entre, va a elegir si es el dueño o qué barbero es.</div>
+      ${S.accesos.length?S.accesos.map(a=>`<div class="perm-row"><span class="pn">${esc(a.email||"(sin mail)")}<small>${a.tipo==="owner"?"Dueño":"Barbero"+(a.nombre?" · "+esc(a.nombre):"")}</small></span><button class="del" data-delacceso="${a.id}" title="Quitar el rol asignado (no borra el login de Supabase)">✕</button></div>`).join(""):'<div class="empty">Cargando accesos…</div>'}
+      </div>`
+    :"";
   return head("Configuración","Marca, clave, respaldo y datos.",true)
   +`<div class="card"><h3>🏷️ Nombre y logo de la barbería</h3><div class="sub">Se ve arriba de todo y en la pantalla de selección de perfil</div>
     <div class="addform" style="margin-bottom:14px"><div class="ff grow"><label>Nombre de la barbería</label><input id="cfg-nombre" value="${esc(DB.nombre||"Mi Barbería")}" placeholder="Ej: Barbería Don Pepe"></div><button class="addbtn" id="cfg-nombre-save">Guardar nombre</button></div>
@@ -1093,12 +1204,23 @@ function tConfig(){
         ${DB.logo?'<button class="tbtn" id="cfg-logo-reset">Volver al ícono por defecto</button>':""}
       </div>
     </div></div>
-  <div class="card"><h3>🔑 Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>
+  ${seguridadCard}
+  ${accesosCard}
   <div class="card"><h3>💾 Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">⬇ Descargar respaldo</button><label class="tbtn" style="cursor:pointer">⬆ Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
   <div class="card"><h3>Empezar de cero</h3><div class="sub">Si estuviste probando la app con datos de prueba, borralos antes de usarla en serio.</div><button class="tbtn" id="wipe" style="border-color:var(--crit);color:var(--crit)">🗑 Borrar cortes, ventas, gastos y turnos cargados</button></div>`;
 }
 function bindConfig(){
   const ps=$("#pin-save");if(ps)ps.onclick=()=>{if(val("#pin-old")!==DB.pin)return toast("La clave actual no coincide");const nw=val("#pin-new");if(!/^\d{4}$/.test(nw))return toast("La nueva clave debe ser 4 dígitos");DB.pin=nw;commit("Clave actualizada ✓");};
+  const lo=$("#logout");if(lo)lo.onclick=async()=>{await sb.auth.signOut();};
+  if(sb&&S.authUser&&S.profile&&S.profile.type==="owner"&&!S.accesos.length){
+    cargarPerfilesRemotos().then(list=>{S.accesos=list;if(S.tab==="config")render();});
+  }
+  document.querySelectorAll("[data-delacceso]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("¿Quitar este acceso? La próxima vez que esta persona entre va a tener que elegir de nuevo quién es. Esto NO borra su login de Supabase — para eso hay que borrarlo desde el panel de Supabase."))return;
+    const ok=await borrarPerfilRemoto(b.dataset.delacceso);
+    if(ok){S.accesos=S.accesos.filter(a=>a.id!==b.dataset.delacceso);toast("Acceso quitado ✓");render();}
+    else toast("No se pudo quitar, probá de nuevo");
+  });
   const ex=$("#export");if(ex)ex.onclick=()=>{const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);const slug=(DB.nombre||"barberia").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||"barberia";a.download=slug+"-respaldo-"+today()+".json";a.click();toast("Respaldo descargado ✓");};
   const im=$("#import");if(im)im.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.barberos||!d.precios)throw 0;DB=d;commit("Datos restaurados ✓");}catch(err){toast("Archivo no válido");}};r.readAsText(f);};
   const w=$("#wipe");if(w)w.onclick=()=>{if(confirm("¿Borrar TODOS los datos cargados (cortes, ventas, gastos, turnos)? Se mantienen barberos, precios, productos, nombre y logo.")){DB.servicios=[];DB.ventas=[];DB.gastos=[];DB.turnos=[];commit("Listo, empezá a cargar ✂");}};
@@ -1116,16 +1238,22 @@ function bindDeletes(){
 /* ================= ROUTER ================= */
 function render(){
   renderWho();
-  if(!S.profile){root.innerHTML=viewSelect();bindSelect();$("#foot").textContent="Prototipo funcional · los datos se guardan en esta computadora.";}
-  else if(S.profile.type==="pin"){root.innerHTML=viewPin();bindPin();$("#foot").textContent="";}
-  else{
-    root.innerHTML=viewApp();
-    document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
-    document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
-    // per-tab bindings
-    bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
-    $("#foot").textContent="Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
+  if(sb){
+    // con backend real conectado: hay que iniciar sesión (mail+clave) antes de ver nada.
+    if(!S.authReady){root.innerHTML="";$("#foot").textContent="";return;}
+    if(!S.authUser){root.innerHTML=viewAuth();bindAuth();$("#foot").textContent="";return;}
+    if(!S.perfil){root.innerHTML=viewOnboarding();bindOnboarding();$("#foot").textContent="";return;}
+  }else{
+    // sin backend configurado (plantilla sin conectar todavía): selector local + PIN, como antes.
+    if(!S.profile){root.innerHTML=viewSelect();bindSelect();$("#foot").textContent="Prototipo funcional · los datos se guardan en esta computadora.";return;}
+    if(S.profile.type==="pin"){root.innerHTML=viewPin();bindPin();$("#foot").textContent="";return;}
   }
+  root.innerHTML=viewApp();
+  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
+  document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
+  // per-tab bindings
+  bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
+  $("#foot").textContent=sb?"Datos sincronizados con la nube.":"Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
 }
 
 /* ---------- boot ---------- */
@@ -1148,13 +1276,36 @@ if(DB.horario===undefined)DB.horario={apertura:"09:00",cierre:"20:00",duracion:3
 })();
 // pintar marca (nombre/logo) en el topbar y en el título de la pestaña
 paintBrand();
-render();
-// al conectar por primera vez, traemos lo que ya haya en la nube (por si se cargó desde otro dispositivo)
-// y de paso empujamos el estado actual, así la página de reservas siempre tiene algo para mostrar
-(async function syncInicial(){
-  if(!sb)return;
+
+// trae config/turnos/clientes de la nube y empuja el estado actual (así reservar.html siempre tiene algo para mostrar)
+async function sincronizarDesdeLaNube(){
   await Promise.all([cargarConfigRemota(),cargarTurnosRemotos(),cargarClientesRemotos()]);
-  save();paintBrand();render();
+  save();paintBrand();
   guardarConfigRemota();
+}
+// una vez logueado: trae los datos y resuelve si esta persona ya es dueño/barbero conocido, o si hay que preguntarle (onboarding)
+async function resolverPerfilYArrancar(){
+  await sincronizarDesdeLaNube();
+  const perfil=await cargarPerfil(S.authUser.id);
+  if(perfil){S.perfil={tipo:perfil.tipo,nombre:perfil.nombre,email:perfil.email};aplicarPerfil();}
+  else{S.perfil=null;}
+  render();
+}
+(async function boot(){
+  if(sb){
+    const{data:{session}}=await sb.auth.getSession();
+    S.authUser=session?session.user:null;
+    sb.auth.onAuthStateChange((_event,session)=>{
+      const prevId=S.authUser&&S.authUser.id;
+      S.authUser=session?session.user:null;
+      if(S.authUser&&S.authUser.id!==prevId){S.accesos=[];resolverPerfilYArrancar();}
+      else if(!S.authUser){S.profile=null;S.perfil=null;S.accesos=[];render();}
+    });
+    S.authReady=true;
+    if(S.authUser)await resolverPerfilYArrancar();else render();
+  }else{
+    S.authReady=true;
+    render();
+  }
 })();
 </script>
