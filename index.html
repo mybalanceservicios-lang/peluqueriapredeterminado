@@ -1233,9 +1233,10 @@ function tConfig(){
     ?`<div class="card"><h3>Tu sesión</h3><div class="sub">Entraste como <b>${esc(S.authUser.email)}</b>.</div><button class="tbtn" id="logout" style="border-color:var(--crit);color:var(--crit)">Cerrar sesión</button></div>`
     :`<div class="card"><h3>Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
   const invitarCard=(usaLoginReal&&S.profile.type==="owner")
-    ?`<div class="card"><h3>Invitar a un barbero</h3><div class="sub">Generá un código y pasáselo (WhatsApp, en persona, como quieras). Con eso crea su propio acceso desde este sistema, sin que nadie tenga que entrar a Supabase.</div>
+    ?`<div class="card"><h3>Invitar a alguien</h3><div class="sub">Generá un código y pasáselo (WhatsApp, en persona, como quieras). Con eso crea su propio acceso desde este sistema, sin que nadie tenga que entrar a Supabase.</div>
       <div class="addform">
-        <div class="ff grow"><label>Nombre del barbero</label><input id="inv-nombre" placeholder="Ej: Marcos" value="${esc(S.nuevoInvNombre)}"></div>
+        <div class="ff"><label>Tipo de acceso</label><select id="inv-tipo"><option value="barber" selected>Barbero</option><option value="owner">Dueño / socio</option></select></div>
+        <div class="ff grow"><label>Nombre (opcional para dueño)</label><input id="inv-nombre" placeholder="Ej: Marcos" value="${esc(S.nuevoInvNombre)}"></div>
         <button class="addbtn" id="inv-generar">Generar código</button>
       </div>
       ${S.nuevoInvCodigo?`<div class="totbar"><span>Código${S.nuevoInvNombre?" para "+esc(S.nuevoInvNombre):""}</span><b class="tnum" style="font-size:19px;letter-spacing:.05em">${esc(S.nuevoInvCodigo)}</b></div>`:""}
@@ -1281,14 +1282,15 @@ function bindConfig(){
     else toast("No se pudo quitar, probá de nuevo");
   });
   const ig=$("#inv-generar");if(ig)ig.onclick=async()=>{
+    const tipo=val("#inv-tipo")==="owner"?"owner":"barber";
     const nombre=val("#inv-nombre").trim();
     ig.disabled=true;ig.textContent="Generando…";
-    const codigo=await crearInvitacionRemota("barber",nombre||null);
+    const codigo=await crearInvitacionRemota(tipo,nombre||null);
     ig.disabled=false;ig.textContent="Generar código";
     if(!codigo)return toast("No se pudo generar el código, probá de nuevo");
-    if(nombre&&!DB.barberos.find(b=>b.n===nombre)){DB.barberos.push({n:nombre,com:0.5,foto:null});save();guardarConfigRemota();}
+    if(tipo==="barber"&&nombre&&!DB.barberos.find(b=>b.n===nombre)){DB.barberos.push({n:nombre,com:0.5,foto:null});save();guardarConfigRemota();}
     S.nuevoInvNombre=nombre;S.nuevoInvCodigo=codigo;
-    S.invitaciones.unshift({codigo,tipo:"barber",nombre:nombre||null,usado:false});
+    S.invitaciones.unshift({codigo,tipo,nombre:nombre||null,usado:false});
     render();
     toast("Código generado ✓");
   };
