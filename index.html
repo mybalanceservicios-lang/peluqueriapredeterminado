@@ -286,13 +286,6 @@ async function cargarPerfil(uid){
     return data;
   }catch(e){return null;}
 }
-async function guardarPerfil(uid,email,tipo,nombre){
-  if(!sb)return false;
-  try{
-    const {error}=await conTimeout(sb.from("perfiles").upsert({id:uid,email,tipo,nombre:nombre||null}));
-    return !error;
-  }catch(e){return false;}
-}
 async function cargarPerfilesRemotos(){
   if(!sb)return [];
   try{
@@ -304,6 +297,41 @@ async function cargarPerfilesRemotos(){
 async function borrarPerfilRemoto(id){
   if(!sb)return false;
   try{const {error}=await conTimeout(sb.from("perfiles").delete().eq("id",id));return !error;}catch(e){return false;}
+}
+/* ---------- invitaciones (códigos de un solo uso para darle acceso a un barbero, sin tocar Supabase) ---------- */
+function generarCodigoInvitacion(){
+  const alfabeto="ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // sin 0/O/1/I/L, para que sea fácil de tipear a mano
+  let cod="";
+  for(let i=0;i<8;i++){
+    if(i===4)cod+="-";
+    cod+=alfabeto[Math.floor(Math.random()*alfabeto.length)];
+  }
+  return cod;
+}
+async function crearInvitacionRemota(tipo,nombre){
+  if(!sb||!S.authUser)return null;
+  const codigo=generarCodigoInvitacion();
+  try{
+    const {error}=await conTimeout(sb.from("invitaciones").insert({codigo,tipo,nombre:nombre||null,creado_por:S.authUser.id}));
+    if(error)return null;
+    return codigo;
+  }catch(e){return null;}
+}
+async function cargarInvitacionesRemotas(){
+  if(!sb)return [];
+  try{
+    const {data,error}=await conTimeout(sb.from("invitaciones").select("*").order("creado_en",{ascending:false}));
+    if(error||!data)return [];
+    return data;
+  }catch(e){return [];}
+}
+async function canjearInvitacion(uid,email,codigo){
+  if(!sb)return {ok:false,msg:"Sin conexión."};
+  try{
+    const {error}=await conTimeout(sb.from("perfiles").insert({id:uid,email,codigo_invitacion:codigo||null,tipo:"owner"}));
+    if(error)return {ok:false,msg:error.message&&/inv[aá]lido|usado|dueñ|dueno/i.test(error.message)?error.message:"No se pudo validar el código. Probá de nuevo."};
+    return {ok:true};
+  }catch(e){return {ok:false,msg:"No se pudo validar el código. Probá de nuevo."};}
 }
 
 /* ---------- default data (plantilla en blanco) ---------- */
@@ -345,7 +373,9 @@ function upsertClienteLocal(nombre,telefono){
 
 /* ---------- state ---------- */
 const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
-  authReady:false,authUser:null,authErr:"",authBusy:false,perfil:null,onbNombreErr:"",accesos:[]};
+  authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
+  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,
+  invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
 
@@ -481,7 +511,7 @@ function viewSelect(){
     <h2>¿Quién está usando la barbería?</h2><p class="sub">Elegí tu perfil para empezar a cargar.</p>
     <div class="profgrid">
       ${DB.barberos.map(b=>`<button class="profcard" data-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
-      <button class="profcard owner" data-owner="1"><span class="pav">🔒</span><b>Dueño</b><small>Requiere clave</small></button>
+      <button class="profcard owner" data-owner="1"><span class="pav">D</span><b>Dueño</b><small>Requiere clave</small></button>
     </div></div>`;
 }
 function bindSelect(){
@@ -494,7 +524,7 @@ function viewPin(){
   const dots=[0,1,2,3].map(i=>`<span class="pindot ${S.pinErr==="err"?"err":i<S.pinBuf.length?"on":""}"></span>`).join("");
   const keys=[1,2,3,4,5,6,7,8,9].map(k=>`<button data-k="${k}">${k}</button>`).join("");
   return `<div class="pinstage fade"><div class="pincard">
-    <div class="lock">🔒</div><h3>Modo Dueño</h3><p>Ingresá tu clave de 4 dígitos</p>
+    <h3>Modo Dueño</h3><p>Ingresá tu clave de 4 dígitos</p>
     <div class="pindots">${dots}</div>
     <div class="keypad">${keys}<button class="wide" data-k="clear">Borrar</button><button data-k="0">0</button><button class="wide" data-k="del">⌫</button></div>
     <div class="pinerr">${S.pinErr==="err"?"Clave incorrecta. Probá de nuevo.":""}</div>
@@ -526,63 +556,76 @@ document.addEventListener("keydown",e=>{
 
 /* ================= LOGIN REAL (Supabase Auth) — reemplaza al selector+PIN cuando hay backend conectado ================= */
 function viewAuth(){
+  const signup=S.authMode==="signup";
   return `<div class="pinstage fade"><div class="pincard">
-    <div class="lock">🔒</div><h3>Iniciar sesión</h3>
-    <p>Entrá con el mail y la clave que te dio el dueño de la barbería.</p>
+    <h3>${signup?"Crear tu acceso":"Iniciar sesión"}</h3>
+    <p>${signup?"Elegí tu mail y una clave. Después vas a necesitar el código de invitación que te dio el dueño de la barbería.":"Entrá con tu mail y clave."}</p>
     <div class="ff" style="text-align:left;margin-bottom:10px"><label>Email</label><input id="auth-email" type="email" placeholder="vos@ejemplo.com" autocomplete="username"></div>
-    <div class="ff" style="text-align:left;margin-bottom:14px"><label>Contraseña</label><input id="auth-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-    <button class="savebtn" id="auth-submit" style="width:100%;${S.authBusy?"opacity:.6":""}" ${S.authBusy?"disabled":""}>${S.authBusy?"Un momento…":"Entrar"}</button>
+    <div class="ff" style="text-align:left;margin-bottom:14px"><label>Contraseña</label><input id="auth-pass" type="password" placeholder="••••••••" autocomplete="${signup?"new-password":"current-password"}"></div>
+    <button class="savebtn" id="auth-submit" style="width:100%;${S.authBusy?"opacity:.6":""}" ${S.authBusy?"disabled":""}>${S.authBusy?"Un momento…":(signup?"Crear acceso":"Entrar")}</button>
+    <button class="pinback" id="auth-toggle">${signup?"Ya tengo acceso":"Todavía no tengo acceso — crear cuenta"}</button>
     <div class="pinerr">${esc(S.authErr)}</div>
-    <p style="font-size:11.5px;color:var(--ink-3);margin-top:16px">¿No tenés acceso todavía? Pedíselo al dueño de la barbería.</p>
   </div></div>`;
 }
 function bindAuth(){
+  $("#auth-toggle").onclick=()=>{S.authMode=S.authMode==="signup"?"login":"signup";S.authErr="";render();};
   const doSubmit=async()=>{
     if(S.authBusy)return;
     const email=val("#auth-email"),pass=val("#auth-pass");
     if(!email||!pass){S.authErr="Completá email y contraseña";render();return;}
+    if(S.authMode==="signup"&&pass.length<6){S.authErr="La contraseña tiene que tener al menos 6 caracteres";render();return;}
     S.authErr="";S.authBusy=true;render();
-    const{error}=await sb.auth.signInWithPassword({email,password:pass});
-    S.authBusy=false;
-    if(error){S.authErr="No pudimos iniciar sesión. Revisá el mail y la clave.";render();return;}
-    // el resto (traer datos + resolver perfil) lo dispara onAuthStateChange
+    if(S.authMode==="signup"){
+      const{data,error}=await sb.auth.signUp({email,password:pass});
+      S.authBusy=false;
+      if(error){S.authErr="No pudimos crear la cuenta: "+error.message;render();return;}
+      if(!data.session){S.authErr="Cuenta creada. Revisá tu mail para confirmarla y después iniciá sesión.";S.authMode="login";render();return;}
+      // si ya vino con sesión activa, el resto lo dispara onAuthStateChange
+    }else{
+      const{error}=await sb.auth.signInWithPassword({email,password:pass});
+      S.authBusy=false;
+      if(error){S.authErr="No pudimos iniciar sesión. Revisá el mail y la clave.";render();return;}
+    }
   };
   $("#auth-submit").onclick=doSubmit;
   $("#auth-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doSubmit();});
   $("#auth-email").addEventListener("keydown",e=>{if(e.key==="Enter")doSubmit();});
 }
 
-/* ================= ONBOARDING (primera vez que este mail entra: elige quién es) ================= */
+/* ================= ONBOARDING (primera vez que este mail entra: canjea el código de invitación) ================= */
 function viewOnboarding(){
   return `<div class="selstage fade"><div class="big-logo"><img src="${DB.logo||DEFAULT_LOGO}" alt="Logo"></div>
-    <h2>¡Bienvenido/a!</h2><p class="sub">Es tu primera vez con este mail — elegí quién sos. La próxima vez que entres, vas a ir directo a tu vista.</p>
-    <div class="profgrid">
-      ${DB.barberos.map(b=>`<button class="profcard" data-onb-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
-      <button class="profcard owner" data-onb-owner="1"><span class="pav">🔒</span><b>Dueño</b><small>Acceso completo</small></button>
+    <h2>¡Bienvenido/a!</h2><p class="sub">Es tu primera vez con este mail. Pedile al dueño el código de invitación que te generó y ponelo acá.</p>
+    <div class="addform" style="max-width:420px">
+      <div class="ff grow"><label>Código de invitación</label><input id="onb-codigo" placeholder="Ej: AB3D-EFGH" style="text-transform:uppercase" value="${esc(S.onbCodigo)}"></div>
+      <button class="addbtn" id="onb-validar" ${S.authBusy?"disabled":""}>${S.authBusy?"Un momento…":"Continuar"}</button>
     </div>
-    <div class="addform" style="margin-top:18px;max-width:480px">
-      <div class="ff grow"><label>¿No estás en la lista? Escribí tu nombre</label><input id="onb-nuevo" placeholder="Tu nombre"></div>
-      <button class="addbtn" id="onb-nuevo-add">Sumarme como barbero</button>
-    </div>
-    ${S.authBusy?'<p class="sub" style="margin-top:14px">Guardando…</p>':""}
+    <div class="pinerr">${esc(S.onbCodigoErr)}</div>
+    <button class="pinback" id="onb-bootstrap">¿Sos el dueño y es la primera vez que se usa este sistema? Entrar sin código</button>
+    <button class="pinback" id="onb-logout" style="margin-top:2px">Cerrar sesión</button>
   </div></div>`;
 }
 function bindOnboarding(){
-  document.querySelectorAll("[data-onb-barb]").forEach(b=>b.onclick=()=>completarOnboarding("barber",b.dataset.onbBarb));
-  const ow=$("[data-onb-owner]");if(ow)ow.onclick=()=>completarOnboarding("owner",null);
-  const add=$("#onb-nuevo-add");if(add)add.onclick=()=>{
-    const n=val("#onb-nuevo");if(!n)return toast("Escribí tu nombre");
-    if(!DB.barberos.find(b=>b.n===n)){DB.barberos.push({n,com:0.5,foto:null});save();guardarConfigRemota();}
-    completarOnboarding("barber",n);
+  const doValidar=()=>{
+    const codigo=val("#onb-codigo").trim().toUpperCase();
+    if(!codigo)return toast("Poné el código de invitación");
+    canjear(codigo);
   };
+  const va=$("#onb-validar");if(va)va.onclick=doValidar;
+  const inp=$("#onb-codigo");if(inp)inp.addEventListener("keydown",e=>{if(e.key==="Enter")doValidar();});
+  const bs=$("#onb-bootstrap");if(bs)bs.onclick=()=>canjear(null);
+  const lo=$("#onb-logout");if(lo)lo.onclick=async()=>{await sb.auth.signOut();};
 }
-async function completarOnboarding(tipo,nombre){
+async function canjear(codigo){
   if(S.authBusy)return;
-  S.authBusy=true;render();
-  const ok=await guardarPerfil(S.authUser.id,S.authUser.email,tipo,nombre);
+  S.onbCodigo=codigo||"";S.onbCodigoErr="";S.authBusy=true;render();
+  const r=await canjearInvitacion(S.authUser.id,S.authUser.email,codigo);
   S.authBusy=false;
-  if(!ok){toast("No se pudo guardar, probá de nuevo");render();return;}
-  S.perfil={tipo,nombre,email:S.authUser.email};
+  if(!r.ok){S.onbCodigoErr=r.msg;render();return;}
+  const perfil=await cargarPerfil(S.authUser.id);
+  if(!perfil){S.onbCodigoErr="Se validó el código pero no pudimos cargar tu perfil. Probá de nuevo.";render();return;}
+  S.perfil={tipo:perfil.tipo,nombre:perfil.nombre,email:perfil.email};
+  S.onbCodigo="";
   aplicarPerfil();
   render();
 }
@@ -601,7 +644,7 @@ function renderWho(){
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
   const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
   const swapLabel=sb&&S.authUser?"Cerrar sesión":"Cambiar";
-  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent)">🔒</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
   $("#swapbtn").onclick=async()=>{
     if(sb&&S.authUser){await sb.auth.signOut();}
     else{S.profile=null;S.ownerUnlocked=false;render();}
@@ -609,19 +652,19 @@ function renderWho(){
 }
 
 /* ================= APP SHELL ================= */
-const BARB_NAV=[["cargar","✂","Cargar"],["mishist","📋","Mi historial"],["miscom","％","Mis comisiones"],["miagenda","🗓","Mi agenda"]];
-const OWNER_NAV=[["web","🌐","Web virtual"],["agenda","🗓","Agenda"],["finanzas","💰","Finanzas"]];
+const BARB_NAV=[["cargar","Cargar"],["mishist","Mi historial"],["miscom","Mis comisiones"],["miagenda","Mi agenda"]];
+const OWNER_NAV=[["web","Web virtual"],["agenda","Agenda"],["finanzas","Finanzas"]];
 const FIN_SUB=[
-  ["panel","◧","Panel"],["cargar","✂","Cargar"],["servicios","📋","Servicios"],["graficos","◔","Gráficos"],
-  ["cierre","🧾","Cierre diario"],["clientes","👤","Clientes"],["barberos","👥","Barberos y comisiones"],["precios","💲","Precios"],
-  ["gastos","⬇","Gastos y sueldos"],["stock","◭","Stock / Productos"]];
+  ["panel","Panel"],["cargar","Cargar"],["servicios","Servicios"],["graficos","Gráficos"],
+  ["cierre","Cierre diario"],["clientes","Clientes"],["barberos","Barberos y comisiones"],["precios","Precios"],
+  ["gastos","Gastos y sueldos"],["stock","Stock / Productos"]];
 function viewApp(){
   const isOwner=S.profile.type==="owner";
   const nav=isOwner?OWNER_NAV:BARB_NAV;
   if(!nav.find(n=>n[0]===S.tab)&&S.tab!=="config")S.tab=nav[0][0];
-  const navHTML=nav.map(n=>`<button class="navitem ${S.tab===n[0]?"on":""}" data-tab="${n[0]}"><span class="gi">${n[1]}</span>${n[2]}</button>`).join("");
-  const finSubHTML=(isOwner&&S.tab==="finanzas")?`<div class="sect" style="margin-top:8px">Finanzas</div>${FIN_SUB.map(n=>`<button class="navitem ${S.subFin===n[0]?"on":""}" data-subfin="${n[0]}"><span class="gi">${n[1]}</span>${n[2]}</button>`).join("")}`:"";
-  return `<div class="app fade"><aside class="side">${isOwner?'<div class="sect">Modo Dueño 🔒</div>':'<div class="sect">Barbero</div>'}${navHTML}${finSubHTML}</aside><div class="main">${renderTab()}</div></div>`;
+  const navHTML=nav.map(n=>`<button class="navitem ${S.tab===n[0]?"on":""}" data-tab="${n[0]}">${n[1]}</button>`).join("");
+  const finSubHTML=(isOwner&&S.tab==="finanzas")?`<div class="sect" style="margin-top:8px">Finanzas</div>${FIN_SUB.map(n=>`<button class="navitem ${S.subFin===n[0]?"on":""}" data-subfin="${n[0]}">${n[1]}</button>`).join("")}`:"";
+  return `<div class="app fade"><aside class="side">${isOwner?'<div class="sect">Modo Dueño</div>':'<div class="sect">Barbero</div>'}${navHTML}${finSubHTML}</aside><div class="main">${renderTab()}</div></div>`;
 }
 function renderTab(){
   const isOwner=S.profile.type==="owner";
@@ -636,14 +679,14 @@ function renderTab(){
   if(!FR[S.subFin])S.subFin="panel";
   return (FR[S.subFin]||tPanel)();
 }
-function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p></div>${owner?'<span class="ownerband">🔒 Solo dueño</span>':""}</div>`;}
+function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p></div>${owner?'<span class="ownerband">Solo dueño</span>':""}</div>`;}
 function curBarbero(){return S.profile.type==="barber"?S.profile.name:null;}
 
 /* ================= CARGAR (barbero + dueño) ================= */
 function tCargar(){
   const isOwner=S.profile.type==="owner";
   const who=isOwner?"":`<b>${esc(S.profile.name)}</b> · `;
-  const seg=`<div class="seg"><button class="${S.loadType==="servicio"?"sel":""}" data-lt="servicio">✂ Corte / Servicio</button><button class="${S.loadType==="producto"?"sel":""}" data-lt="producto">🛍 Producto</button></div>`;
+  const seg=`<div class="seg"><button class="${S.loadType==="servicio"?"sel":""}" data-lt="servicio">Corte / Servicio</button><button class="${S.loadType==="producto"?"sel":""}" data-lt="producto">Producto</button></div>`;
   let form;
   if(S.loadType==="servicio"){
     const chips=DB.precios.map(p=>`<button class="chip" data-tipo="${esc(p.tipo)}"><span>${esc(p.tipo)}</span><small>${p.precio>0?money(p.precio):"a definir"}</small></button>`).join("");
@@ -651,7 +694,7 @@ function tCargar(){
       <div class="bf"><label>Tipo de corte / servicio</label><div class="chips" id="tipo-chips">${chips}</div></div>
       ${isOwner?`<div class="bf"><label>¿Qué barbero lo hizo?</label><select id="c-barb">${DB.barberos.map(b=>`<option>${esc(b.n)}</option>`).join("")}</select></div>`:""}
       <div class="bf-row">
-        <div class="bf"><label>Precio${isOwner?"":" 🔒 fijado por el dueño"}</label><input type="number" id="c-precio" value="0" min="0" ${isOwner?"":"readonly"}><span class="hint" id="price-hint"></span></div>
+        <div class="bf"><label>Precio${isOwner?"":" (fijado por el dueño)"}</label><input type="number" id="c-precio" value="0" min="0" ${isOwner?"":"readonly"}><span class="hint" id="price-hint"></span></div>
         <div class="bf"><label>Fecha</label><input type="date" id="c-fecha" value="${today()}"></div>
         <div class="bf"><label>Hora</label><input type="time" id="c-hora" value="${nowTime()}"></div>
       </div>
@@ -725,7 +768,7 @@ function tMisHist(){
       <button class="addbtn" id="mh-filtrar">Filtrar</button>
       <button class="tbtn" id="mh-limpiar" style="padding:11px 16px">Ver todo</button>
     </div></div>`;
-  const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}${s.turnoId?' <span title="Generado desde un turno de la agenda">🔗</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">${activo?"Sin cortes con este filtro.":'Todavía no cargaste cortes. Andá a "Cargar" ✂'}</div></td></tr>`;
+  const rows=list.length?list.map(s=>`<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${esc(s.tipo)}${s.turnoId?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Generado desde un turno de la agenda">Vinculado</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">${activo?"Sin cortes con este filtro.":'Todavía no cargaste cortes. Andá a "Cargar"'}</div></td></tr>`;
   return head("Mi historial","Tus cortes y ventas, "+esc(b)+".")
   +`<div class="kpis">${kpi("Mis cortes",list.length,"total")}${kpi("Facturé",money(sumBy(list,s=>s.precio)),"en cortes")}${kpi("Mis ventas prod.",ventas.length,money(sumBy(ventas,v=>v.total)))}${kpi("Mi comisión",money(sumBy(list,s=>s.comBarbero)),"acumulada",1)}</div>`
   +filtro+`<div class="card fade"><h3>Mis cortes</h3><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Mi comisión</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
@@ -769,7 +812,7 @@ function dateNav(){
     <span class="lbl">${esc(fdateLong(f))}${esHoy?' <span class="today">HOY</span>':""}</span>
     <button data-dnav="1" title="Día siguiente">›</button>
     ${esHoy?"":'<button class="today" data-dnav="hoy" style="height:34px">Volver a hoy</button>'}
-    <button id="agenda-refresh" title="Traer los turnos reservados desde la web" style="margin-left:auto">🔄 Actualizar</button>
+    <button id="agenda-refresh" title="Traer los turnos reservados desde la web" style="margin-left:auto">Actualizar</button>
   </div>`;
 }
 function overlaps(list){
@@ -801,9 +844,9 @@ function agendaTable(list,showBarb){
       ?`<span class="pill done" data-tg="${t.id}" style="cursor:pointer" title="Volver a pendiente (no borra lo ya cobrado)">Atendido ✓</span>`
       :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
     const wa=telefonoWhatsapp(t.telefono);
-    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeRecordatorio(t))}" target="_blank" rel="noopener" title="Enviar recordatorio por WhatsApp">💬 WhatsApp</a>`:"";
-    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span title="Reservado desde la página de reservas">🌐</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span title="Ya se cargó en Finanzas">🔗</span>':""}</td><td>${estadoCell}</td><td style="display:flex;gap:6px;align-items:center">${waBtn}<button class="del" data-delt="${t.id}">✕</button></td></tr>`;
-  }).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día. 🎉</div></td></tr>`;
+    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeRecordatorio(t))}" target="_blank" rel="noopener" title="Enviar recordatorio por WhatsApp">WhatsApp</a>`:"";
+    return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Reservado desde la página de reservas">Web</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Ya se cargó en Finanzas">Vinculado</span>':""}</td><td>${estadoCell}</td><td style="display:flex;gap:6px;align-items:center">${waBtn}<button class="del" data-delt="${t.id}">✕</button></td></tr>`;
+  }).join(""):`<tr><td colspan="${showBarb?6:5}"><div class="empty">Sin turnos para este día.</div></td></tr>`;
   return `<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Hora</th>${showBarb?"<th>Barbero</th>":""}<th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="sub" style="margin-top:10px">Al marcar "Atendido" se carga solo en Finanzas con el medio de pago elegido — no hace falta cargarlo de nuevo en "Cargar".</div></div>`;
 }
 function mensajeRecordatorio(t){
@@ -864,7 +907,7 @@ function tPanel(){
   const alert=DB.productos.filter(p=>stockActual(p)<p.min).length;
   const hoyPendiente=!cierreExistente(today())&&(serviciosDia(today()).length||ventasDia(today()).length||gastosDia(today()).length);
   return head("Panel","Los números del mes de un vistazo.",true)
-  +(hoyPendiente?`<div class="warnbox">📋 Todavía no cerraste el día de hoy. <button data-tab="finanzas" data-subfin="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
+  +(hoyPendiente?`<div class="warnbox">Todavía no cerraste el día de hoy. <button data-tab="finanzas" data-subfin="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
   +`<div class="kpis">
     ${kpi("Facturación del mes",money(fact),"cortes + productos")}
     ${kpi("Ganancia barbería",money(gan),"tras comisiones y gastos",gan>=0?1:2)}
@@ -875,7 +918,7 @@ function tPanel(){
     <div class="card"><h3>Facturación por barbero</h3><div class="sub">Cortes de este mes</div>${barberoBars(CURM)}</div>
     <div class="card"><h3>Ingresos por mes</h3><div class="sub">Cortes + productos</div>${mesChart("todos")}</div>
   </div>
-  ${alert?`<div class="card"><h3>⚠ Stock a reponer</h3><div class="sub">${alert} producto(s) bajo el mínimo</div>${DB.productos.filter(p=>stockActual(p)<p.min).map(p=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${esc(p.nombre)}</span><span class="pill rep">${stockActual(p)} / mín ${p.min}</span></div>`).join("")}</div>`:""}`;
+  ${alert?`<div class="card"><h3>Stock a reponer</h3><div class="sub">${alert} producto(s) bajo el mínimo</div>${DB.productos.filter(p=>stockActual(p)<p.min).map(p=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${esc(p.nombre)}</span><span class="pill rep">${stockActual(p)} / mín ${p.min}</span></div>`).join("")}</div>`:""}`;
 }
 function kpi(l,v,d,tone){const c=tone===1?"up-c":tone===2?"dn-c":"";return `<div class="kpi"><div class="lbl">${l}</div><div class="val tnum">${v}</div><div class="delta ${c}">${d||""}</div></div>`;}
 function barberoBars(m){const data=DB.barberos.map(b=>({n:b.n,v:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&(!m||s.mes===m)),s=>s.precio)}));const max=Math.max(1,...data.map(d=>d.v));return `<div class="chart">${data.map(d=>`<div class="barcol"><span class="bv">${d.v?money(d.v):""}</span><div class="barwrap"><div class="bar i" style="height:${d.v/max*100}%"></div></div><small>${esc(d.n)}</small></div>`).join("")}</div>`;}
@@ -897,7 +940,7 @@ function tServicios(){
       <button class="addbtn" id="sv-filtrar">Filtrar</button>
       <button class="tbtn" id="sv-limpiar" style="padding:11px 16px">Ver todo</button>
     </div></div>`;
-  const rows=list.length?list.map(s=>{const bo=DB.barberos.find(x=>x.n===s.barbero);return `<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${avatarHTML(s.barbero,bo&&bo.foto,"av-sm")}${esc(s.barbero)}</td><td>${esc(s.tipo)}${s.turnoId?' <span title="Generado desde un turno de la agenda">🔗</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td><td class="num">${money(s.comBarberia)}</td><td><button class="del" data-dels="${s.id}">✕</button></td></tr>`;}).join(""):`<tr><td colspan="10"><div class="empty">Sin servicios ${activo?"con este filtro":"cargados"}.</div></td></tr>`;
+  const rows=list.length?list.map(s=>{const bo=DB.barberos.find(x=>x.n===s.barbero);return `<tr><td>${fdate(s.fecha)}</td><td class="tnum">${s.hora||"—"}</td><td>${avatarHTML(s.barbero,bo&&bo.foto,"av-sm")}${esc(s.barbero)}</td><td>${esc(s.tipo)}${s.turnoId?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Generado desde un turno de la agenda">Vinculado</span>':""}</td><td>${esc(s.desc)||"—"}</td><td class="num">${money(s.precio)}</td><td><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${esc(s.pago||"Efectivo")}</span></td><td class="num" style="color:var(--accent-ink)">${money(s.comBarbero)}</td><td class="num">${money(s.comBarberia)}</td><td><button class="del" data-dels="${s.id}">✕</button></td></tr>`;}).join(""):`<tr><td colspan="10"><div class="empty">Sin servicios ${activo?"con este filtro":"cargados"}.</div></td></tr>`;
   return head("Servicios","Todos los cortes cargados por el equipo.",true)
   +filtro+`<div class="card fade"><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Barbero</th><th>Servicio</th><th>Cliente / Nota</th><th class="num">Precio</th><th>Pago</th><th class="num">Com. barbero</th><th class="num">Com. barbería</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div class="totbar"><span>Total facturado ${activo?"con este filtro":"en cortes"}</span><b class="tnum">${money(sumBy(list,s=>s.precio))}</b></div></div>`;
 }
@@ -911,7 +954,7 @@ function tGraficos(){
   const byServ={};DB.servicios.forEach(s=>{if(S.graphB==="todos"||s.barbero===S.graphB)byServ[s.tipo]=(byServ[s.tipo]||0)+s.precio;});
   const se=Object.entries(byServ).sort((a,b)=>b[1]-a[1]);const smax=Math.max(1,...se.map(x=>x[1]));
   return head("Gráficos","Comparalos entre sí o miralos combinados.",true)
-  +`<div class="card"><h3>Ver 👁 ${opts}</h3><div class="sub">Filtrá por barbero o mirá todo junto</div></div>
+  +`<div class="card"><h3>Ver ${opts}</h3><div class="sub">Filtrá por barbero o mirá todo junto</div></div>
   <div class="grid2">
     <div class="card"><h3>Facturación por barbero</h3><div class="sub">Acumulado (todos los meses)</div>${barberoBars(null)}</div>
     <div class="card"><h3>Ingresos por mes</h3><div class="sub">${S.graphB==="todos"?"Cortes + productos, con gastos":esc(S.graphB)}</div>${mesChart(S.graphB)}</div>
@@ -932,9 +975,9 @@ function tWebVirtual(){
   const diasTxt=h.dias.length===7?"Todos los días":DIAS_SEM.filter((d,i)=>h.dias.includes(i)).join(", ")||"Sin días configurados";
   const textoCompartir=`${DB.nombre||"Mi Barbería"}\n${diasTxt} · ${h.apertura} a ${h.cierre}\n\n${serviciosTxt}`;
   return head("Web virtual","Configurá cómo se va a ver tu página de reservas online.",true)
-  +`<div class="warnbox">🌐 <b>Reservas online activas (en modo de prueba).</b> El link ya funciona de verdad entre dispositivos distintos — un turno reservado desde cualquier celular aparece en tu Agenda. Todavía no tiene un login propio para el dueño, así que por ahora conviene compartirlo solo para probarlo, no publicarlo mientras se termina de afianzar.</div>
+  +`<div class="warnbox"><b>Reservas online activas.</b> El link ya funciona de verdad entre dispositivos distintos — un turno reservado desde cualquier celular aparece en tu Agenda.</div>
   <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
-    <div><h3 style="margin-bottom:2px">👁 Probá cómo se vería para un cliente</h3><div class="sub" style="margin-bottom:0">Abrí la página de reservas — funciona desde cualquier dispositivo con internet, no hace falta que sea el mismo.</div></div>
+    <div><h3 style="margin-bottom:2px">Probá cómo se vería para un cliente</h3><div class="sub" style="margin-bottom:0">Abrí la página de reservas — funciona desde cualquier dispositivo con internet, no hace falta que sea el mismo.</div></div>
     <a href="reservar.html" target="_blank" class="savebtn" style="text-decoration:none;white-space:nowrap">Ver página de reservas →</a>
   </div>
   <div class="card"><h3>Horario de atención</h3>
@@ -952,14 +995,14 @@ function tWebVirtual(){
     <div class="card"><h3>Vista previa</h3><div class="sub">Así se vería tu vidriera online</div>
       <div style="border:1px solid var(--line);border-radius:14px;padding:18px;background:var(--panel-2)">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="width:44px;height:44px;border-radius:11px;overflow:hidden;flex-shrink:0"><img src="${DB.logo||DEFAULT_LOGO}" style="width:100%;height:100%;object-fit:cover"></div><b style="font-size:16px">${esc(DB.nombre||"Mi Barbería")}</b></div>
-        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">🕐 ${esc(diasTxt)} · ${h.apertura} a ${h.cierre}</div>
-        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:10px">✂ ${esc(barberosTxt)}</div>
+        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">${esc(diasTxt)} · ${h.apertura} a ${h.cierre}</div>
+        <div style="font-size:12.5px;color:var(--ink-2);margin-bottom:10px">${esc(barberosTxt)}</div>
         ${visibles.length?visibles.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line-2);font-size:13px"><span>${esc(p.tipo)}</span><b>${p.precio>0?money(p.precio):"a consultar"}</b></div>`).join(""):'<div class="empty">Sin servicios marcados como visibles.</div>'}
       </div>
     </div>
     <div class="card"><h3>Texto para compartir</h3><div class="sub">Copialo y pegalo en tu WhatsApp, Instagram o donde quieras</div>
       <textarea id="wv-texto" readonly style="width:100%;min-height:160px;border:1.5px solid var(--line);border-radius:11px;background:var(--panel-2);padding:12px;font-size:13px;font-family:inherit;color:var(--ink)">${esc(textoCompartir)}</textarea>
-      <button class="savebtn" id="wv-copiar" style="margin-top:10px">📋 Copiar texto</button>
+      <button class="savebtn" id="wv-copiar" style="margin-top:10px">Copiar texto</button>
     </div>
   </div>`;
 }
@@ -1030,16 +1073,16 @@ function tCierre(){
   const existente=cierreExistente(fecha);
   const t=existente?existente.totales:calcularCierre(fecha);
   const estadoBadge=existente
-    ?`<span class="ownerband" style="background:var(--good-soft);color:var(--good);border-color:transparent">✅ Cerrado a las ${fmtHora(existente.cerradoEn)} por ${esc(existente.cerradoPor)}</span>`
-    :`<span class="ownerband" style="background:var(--warn-soft,#FBEBD2);color:var(--warn);border-color:transparent">⏳ Todavía no se cerró este día</span>`;
+    ?`<span class="ownerband" style="background:var(--good-soft);color:var(--good);border-color:transparent">Cerrado a las ${fmtHora(existente.cerradoEn)} por ${esc(existente.cerradoPor)}</span>`
+    :`<span class="ownerband" style="background:var(--warn-soft,#FBEBD2);color:var(--warn);border-color:transparent">Todavía no se cerró este día</span>`;
   const accion=existente
-    ?`<button class="tbtn" id="cierre-rehacer" style="border-color:var(--accent);color:var(--accent-ink)">🔓 Volver a cerrar (actualiza el registro)</button>`
-    :`<button class="cargar" id="cierre-hacer" style="max-width:280px">🔒 Cerrar el día</button>`;
+    ?`<button class="tbtn" id="cierre-rehacer" style="border-color:var(--accent);color:var(--accent-ink)">Volver a cerrar (actualiza el registro)</button>`
+    :`<button class="cargar" id="cierre-hacer" style="max-width:280px">Cerrar el día</button>`;
   const histRows=[...DB.cierres].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,60).map(c=>`<tr><td>${fdate(c.fecha)}</td><td class="num">${c.totales.cortes+c.totales.ventasCant}</td><td class="num">${money(c.totales.facturadoTotal)}</td><td class="num">${money(c.totales.comisionesTotal)}</td><td class="num">${money(c.totales.gastosTotal)}</td><td class="num" style="font-weight:700;color:${c.totales.gananciaNeta>=0?"var(--good)":"var(--crit)"}">${money(c.totales.gananciaNeta)}</td><td>${esc(c.cerradoPor)} · ${fmtHora(c.cerradoEn)}</td><td><button class="tbtn sm" data-vercierre="${c.fecha}">Ver</button></td></tr>`).join("");
   return head("Cierre diario","Cerrá el día para dejar guardado el registro completo: facturación, comisiones, gastos y caja por medio de pago.",true)
   +`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">${cierreDateNav()}${estadoBadge}</div></div>`
   +`<div class="card">${viewCierreTotales(t)}<div style="margin-top:14px">${accion}</div>${existente?'<div class="hint" style="margin-top:10px;color:var(--ink-3);font-size:12px">Si cargaste algo nuevo de este día después de cerrarlo, estos números no se actualizan solos — volvé a cerrar para guardar la versión final.</div>':""}</div>`
-  +`<div class="card fade"><h3>Historial de cierres</h3><div class="sub">Todos los días cerrados hasta ahora</div>${DB.cierres.length?`<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th class="num">Movs.</th><th class="num">Facturado</th><th class="num">Comisiones</th><th class="num">Gastos</th><th class="num">Ganancia</th><th>Cerrado por</th><th></th></tr></thead><tbody>${histRows}</tbody></table></div><button class="savebtn" id="cierre-csv" style="margin-top:14px">⬇ Descargar CSV de cierres</button>`:`<div class="empty">Todavía no cerraste ningún día.</div>`}</div>`;
+  +`<div class="card fade"><h3>Historial de cierres</h3><div class="sub">Todos los días cerrados hasta ahora</div>${DB.cierres.length?`<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th class="num">Movs.</th><th class="num">Facturado</th><th class="num">Comisiones</th><th class="num">Gastos</th><th class="num">Ganancia</th><th>Cerrado por</th><th></th></tr></thead><tbody>${histRows}</tbody></table></div><button class="savebtn" id="cierre-csv" style="margin-top:14px">Descargar CSV de cierres</button>`:`<div class="empty">Todavía no cerraste ningún día.</div>`}</div>`;
 }
 function bindCierre(){
   document.querySelectorAll("[data-cnav]").forEach(b=>b.onclick=()=>{
@@ -1059,9 +1102,9 @@ function bindCierre(){
 
 /* ================= OWNER: barberos y comisiones ================= */
 function tBarberos(){
-  const rows=DB.barberos.map((b,i)=>`<div class="perm-row"><span class="pn"><button class="av-edit" data-fotob="${i}" title="Cambiar foto">${avatarHTML(b.n,b.foto,"av-sm")}<span class="av-edit-badge">📷</span></button>${esc(b.n)}<small>${servDeBarbero(b.n).length} cortes · facturó ${money(factBarbero(b.n))}</small></span><div style="display:flex;align-items:center;gap:6px">${b.foto?`<button class="tbtn" data-fotobclear="${i}" style="padding:6px 10px;font-size:11px">Quitar foto</button>`:""}<input class="miniin" id="com-${i}" type="number" min="0" max="100" value="${Math.round(b.com*100)}" style="width:70px"><span style="font-size:13px;color:var(--ink-3)">% barbero</span><button class="del" data-delb="${esc(b.n)}" title="Eliminar barbero">✕</button></div><input type="file" accept="image/*" id="foto-in-${i}" style="display:none"></div>`).join("");
+  const rows=DB.barberos.map((b,i)=>`<div class="perm-row"><span class="pn"><button class="av-edit" data-fotob="${i}" title="Cambiar foto">${avatarHTML(b.n,b.foto,"av-sm")}<span class="av-edit-badge">✎</span></button>${esc(b.n)}<small>${servDeBarbero(b.n).length} cortes · facturó ${money(factBarbero(b.n))}</small></span><div style="display:flex;align-items:center;gap:6px">${b.foto?`<button class="tbtn" data-fotobclear="${i}" style="padding:6px 10px;font-size:11px">Quitar foto</button>`:""}<input class="miniin" id="com-${i}" type="number" min="0" max="100" value="${Math.round(b.com*100)}" style="width:70px"><span style="font-size:13px;color:var(--ink-3)">% barbero</span><button class="del" data-delb="${esc(b.n)}" title="Eliminar barbero">✕</button></div><input type="file" accept="image/*" id="foto-in-${i}" style="display:none"></div>`).join("");
   const desde=S.comDesde,hasta=S.comHasta,quien=S.comBarb||"todos";
-  const pagoForm=`<div class="card"><h3>💰 Calcular comisión a pagar</h3><div class="sub">Elegí barbero y rango de fechas — sirve para pagar por día, semana, quincena o el período que uses, no hace falta que sea el mes completo</div>
+  const pagoForm=`<div class="card"><h3>Calcular comisión a pagar</h3><div class="sub">Elegí barbero y rango de fechas — sirve para pagar por día, semana, quincena o el período que uses, no hace falta que sea el mes completo</div>
     <div class="addform" style="margin-bottom:0">
       <div class="ff"><label>Barbero</label><select id="pg-barb"><option value="todos" ${quien==="todos"?"selected":""}>Todos</option>${DB.barberos.map(b=>`<option ${quien===b.n?"selected":""}>${esc(b.n)}</option>`).join("")}</select></div>
       <div class="ff"><label>Desde</label><input type="date" id="pg-desde" value="${desde}"></div>
@@ -1080,7 +1123,7 @@ function tBarberos(){
     }
   }
   return head("Barberos y comisiones","Cambiá el % que se lleva cada barbero. Los cortes ya cargados no cambian.",true)
-  +`<div class="warnbox">💡 <b>Ojo:</b> al cambiar una comisión, solo afecta los cortes <b>nuevos</b>. Los ya cargados mantienen la comisión con la que se registraron.</div>
+  +`<div class="warnbox"><b>Ojo:</b> al cambiar una comisión, solo afecta los cortes <b>nuevos</b>. Los ya cargados mantienen la comisión con la que se registraron.</div>
   <div class="card"><h3>Comisión por barbero</h3><div class="sub">El resto (100% − comisión) queda para la barbería</div>${rows}<button class="savebtn" id="save-com" style="margin-top:14px">Guardar comisiones</button></div>
   <div class="card"><h3>Sumar un barbero</h3><div class="addform" style="margin-bottom:0"><div class="ff grow"><label>Nombre</label><input id="nb-nombre" placeholder="Nombre del barbero"></div><div class="ff"><label>Comisión %</label><input type="number" id="nb-com" value="50" min="0" max="100"></div><button class="addbtn" id="nb-add">＋ Sumar</button></div></div>
   ${pagoForm}${pagoResult}`;
@@ -1114,7 +1157,7 @@ function tClientes(){
   const list=DB.clientes.slice().filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.telefono.includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   const rows=list.length?list.map(c=>{
     const wa=telefonoWhatsapp(c.telefono);
-    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent("Hola "+c.nombre+"! Te escribimos de "+(DB.nombre||"la barbería")+".")}" target="_blank" rel="noopener">💬 WhatsApp</a>`:"";
+    const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent("Hola "+c.nombre+"! Te escribimos de "+(DB.nombre||"la barbería")+".")}" target="_blank" rel="noopener">WhatsApp</a>`:"";
     return `<div class="perm-row"><span class="pn">${esc(c.nombre)}<small>${esc(c.telefono)}</small></span>${waBtn}</div>`;
   }).join(""):`<div class="empty">${q?"Sin resultados para esa búsqueda.":"Todavía no hay clientes guardados. Se cargan solos cuando alguien reserva desde la web o cuando cargás un teléfono en Agenda."}</div>`;
   return head("Clientes","Nombres y teléfonos guardados automáticamente desde las reservas.",true)
@@ -1130,7 +1173,7 @@ function bindClientes(){
 function tPrecios(){
   const rows=DB.precios.map((p,i)=>`<div class="perm-row"><span class="pn">${esc(p.tipo)}</span><div style="display:flex;align-items:center;gap:6px"><span style="color:var(--ink-3)">$</span><input class="miniin" id="pr-${i}" type="number" min="0" value="${p.precio}"><button class="del" data-delpr="${esc(p.tipo)}" title="Eliminar servicio">✕</button></div></div>`).join("");
   return head("Precios de servicios","Actualizá los precios cuando aumentes. No cambia los cortes ya hechos.",true)
-  +`<div class="warnbox">🔒 <b>Importante:</b> cuando subís un precio acá, se usa para los cortes <b>nuevos</b>. Los cortes ya cargados <b>quedan con el precio original</b> con el que se registraron.</div>
+  +`<div class="warnbox"><b>Importante:</b> cuando subís un precio acá, se usa para los cortes <b>nuevos</b>. Los cortes ya cargados <b>quedan con el precio original</b> con el que se registraron.</div>
   <div class="card"><h3>Lista de precios</h3><div class="sub">Estos son los valores que ven los barberos al cargar</div>${rows}<div class="addform" style="margin-top:14px;margin-bottom:0"><div class="ff grow"><label>Nuevo servicio</label><input id="np-tipo" placeholder="Ej: Diseño"></div><div class="ff"><label>Precio $</label><input type="number" id="np-precio" value="0"></div><button class="addbtn" id="np-add">＋ Agregar</button></div><button class="savebtn" id="save-pr" style="margin-top:14px">Guardar precios</button></div>`;
 }
 function bindPrecios(){
@@ -1187,43 +1230,71 @@ function bindStock(){
 function tConfig(){
   const usaLoginReal=!!(sb&&S.authUser);
   const seguridadCard=usaLoginReal
-    ?`<div class="card"><h3>🔑 Tu sesión</h3><div class="sub">Entraste como <b>${esc(S.authUser.email)}</b>.</div><button class="tbtn" id="logout" style="border-color:var(--crit);color:var(--crit)">Cerrar sesión</button></div>`
-    :`<div class="card"><h3>🔑 Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
+    ?`<div class="card"><h3>Tu sesión</h3><div class="sub">Entraste como <b>${esc(S.authUser.email)}</b>.</div><button class="tbtn" id="logout" style="border-color:var(--crit);color:var(--crit)">Cerrar sesión</button></div>`
+    :`<div class="card"><h3>Cambiar clave del dueño</h3><div class="sub">Es el código de 4 dígitos para entrar a este modo</div><div class="addform" style="margin-bottom:0"><div class="ff"><label>Clave actual</label><input type="password" id="pin-old" maxlength="4" inputmode="numeric" placeholder="••••"></div><div class="ff"><label>Nueva clave (4 díg.)</label><input type="password" id="pin-new" maxlength="4" inputmode="numeric" placeholder="••••"></div><button class="addbtn" id="pin-save">Guardar clave</button></div></div>`;
+  const invitarCard=(usaLoginReal&&S.profile.type==="owner")
+    ?`<div class="card"><h3>Invitar a un barbero</h3><div class="sub">Generá un código y pasáselo (WhatsApp, en persona, como quieras). Con eso crea su propio acceso desde este sistema, sin que nadie tenga que entrar a Supabase.</div>
+      <div class="addform">
+        <div class="ff grow"><label>Nombre del barbero</label><input id="inv-nombre" placeholder="Ej: Marcos" value="${esc(S.nuevoInvNombre)}"></div>
+        <button class="addbtn" id="inv-generar">Generar código</button>
+      </div>
+      ${S.nuevoInvCodigo?`<div class="totbar"><span>Código${S.nuevoInvNombre?" para "+esc(S.nuevoInvNombre):""}</span><b class="tnum" style="font-size:19px;letter-spacing:.05em">${esc(S.nuevoInvCodigo)}</b></div>`:""}
+      ${S.invitaciones.length?`<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Código</th><th>Para</th><th>Estado</th></tr></thead><tbody>${S.invitaciones.map(i=>`<tr><td style="font-family:ui-monospace,monospace">${esc(i.codigo)}</td><td>${i.tipo==="owner"?"Dueño":"Barbero"+(i.nombre?" · "+esc(i.nombre):"")}</td><td><span class="pill ${i.usado?"done":"pend"}">${i.usado?"Usado":"Pendiente"}</span></td></tr>`).join("")}</tbody></table></div>`:""}
+      </div>`
+    :"";
   const accesosCard=(usaLoginReal&&S.profile.type==="owner")
-    ?`<div class="card"><h3>👥 Accesos (login por mail)</h3><div class="sub">Para sumar a alguien, creale un usuario en el panel de Supabase (Authentication → Users → Add user) con su mail y una clave, y pasásela. La primera vez que entre, va a elegir si es el dueño o qué barbero es.</div>
-      ${S.accesos.length?S.accesos.map(a=>`<div class="perm-row"><span class="pn">${esc(a.email||"(sin mail)")}<small>${a.tipo==="owner"?"Dueño":"Barbero"+(a.nombre?" · "+esc(a.nombre):"")}</small></span><button class="del" data-delacceso="${a.id}" title="Quitar el rol asignado (no borra el login de Supabase)">✕</button></div>`).join(""):'<div class="empty">Cargando accesos…</div>'}
+    ?`<div class="card"><h3>Accesos actuales</h3><div class="sub">Quién ya entró y qué rol tiene.</div>
+      ${S.accesos.length?S.accesos.map(a=>`<div class="perm-row"><span class="pn">${esc(a.email||"(sin mail)")}<small>${a.tipo==="owner"?"Dueño":"Barbero"+(a.nombre?" · "+esc(a.nombre):"")}</small></span><button class="del" data-delacceso="${a.id}" title="Quitar el rol asignado (no borra la cuenta de acceso)">✕</button></div>`).join(""):'<div class="empty">Todavía no hay nadie más con acceso.</div>'}
       </div>`
     :"";
   return head("Configuración","Marca, clave, respaldo y datos.",true)
-  +`<div class="card"><h3>🏷️ Nombre y logo de la barbería</h3><div class="sub">Se ve arriba de todo y en la pantalla de selección de perfil</div>
+  +`<div class="card"><h3>Nombre y logo de la barbería</h3><div class="sub">Se ve arriba de todo y en la pantalla de selección de perfil</div>
     <div class="addform" style="margin-bottom:14px"><div class="ff grow"><label>Nombre de la barbería</label><input id="cfg-nombre" value="${esc(DB.nombre||"Mi Barbería")}" placeholder="Ej: Barbería Don Pepe"></div><button class="addbtn" id="cfg-nombre-save">Guardar nombre</button></div>
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <div style="width:64px;height:64px;border-radius:16px;overflow:hidden;border:1px solid var(--line);flex:none"><img id="cfg-logo-preview" src="${DB.logo||DEFAULT_LOGO}" style="width:100%;height:100%;object-fit:cover;display:block"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <label class="tbtn" style="cursor:pointer">⬆ Subir logo<input type="file" accept="image/*" id="cfg-logo-in" style="display:none"></label>
+        <label class="tbtn" style="cursor:pointer">Subir logo<input type="file" accept="image/*" id="cfg-logo-in" style="display:none"></label>
         ${DB.logo?'<button class="tbtn" id="cfg-logo-reset">Volver al ícono por defecto</button>':""}
       </div>
     </div></div>
   ${seguridadCard}
+  ${invitarCard}
   ${accesosCard}
-  <div class="card"><h3>💾 Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">⬇ Descargar respaldo</button><label class="tbtn" style="cursor:pointer">⬆ Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
-  <div class="card"><h3>Empezar de cero</h3><div class="sub">Si estuviste probando la app con datos de prueba, borralos antes de usarla en serio.</div><button class="tbtn" id="wipe" style="border-color:var(--crit);color:var(--crit)">🗑 Borrar cortes, ventas, gastos y turnos cargados</button></div>`;
+  <div class="card"><h3>Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">Descargar respaldo</button><label class="tbtn" style="cursor:pointer">Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
+  <div class="card"><h3>Empezar de cero</h3><div class="sub">Si estuviste probando la app con datos de prueba, borralos antes de usarla en serio.</div><button class="tbtn" id="wipe" style="border-color:var(--crit);color:var(--crit)">Borrar cortes, ventas, gastos y turnos cargados</button></div>`;
 }
 function bindConfig(){
   const ps=$("#pin-save");if(ps)ps.onclick=()=>{if(val("#pin-old")!==DB.pin)return toast("La clave actual no coincide");const nw=val("#pin-new");if(!/^\d{4}$/.test(nw))return toast("La nueva clave debe ser 4 dígitos");DB.pin=nw;commit("Clave actualizada ✓");};
   const lo=$("#logout");if(lo)lo.onclick=async()=>{await sb.auth.signOut();};
-  if(sb&&S.authUser&&S.profile&&S.profile.type==="owner"&&!S.accesos.length){
+  if(sb&&S.authUser&&S.profile&&S.profile.type==="owner"&&!S.accesosCargados){
+    S.accesosCargados=true;
     cargarPerfilesRemotos().then(list=>{S.accesos=list;if(S.tab==="config")render();});
   }
+  if(sb&&S.authUser&&S.profile&&S.profile.type==="owner"&&!S.invitacionesCargadas){
+    S.invitacionesCargadas=true;
+    cargarInvitacionesRemotas().then(list=>{S.invitaciones=list;if(S.tab==="config")render();});
+  }
   document.querySelectorAll("[data-delacceso]").forEach(b=>b.onclick=async()=>{
-    if(!confirm("¿Quitar este acceso? La próxima vez que esta persona entre va a tener que elegir de nuevo quién es. Esto NO borra su login de Supabase — para eso hay que borrarlo desde el panel de Supabase."))return;
+    if(!confirm("¿Quitar este acceso? La próxima vez que esta persona entre va a tener que pedir un código de invitación nuevo. Esto NO borra su cuenta de acceso — solo el rol asignado."))return;
     const ok=await borrarPerfilRemoto(b.dataset.delacceso);
     if(ok){S.accesos=S.accesos.filter(a=>a.id!==b.dataset.delacceso);toast("Acceso quitado ✓");render();}
     else toast("No se pudo quitar, probá de nuevo");
   });
+  const ig=$("#inv-generar");if(ig)ig.onclick=async()=>{
+    const nombre=val("#inv-nombre").trim();
+    ig.disabled=true;ig.textContent="Generando…";
+    const codigo=await crearInvitacionRemota("barber",nombre||null);
+    ig.disabled=false;ig.textContent="Generar código";
+    if(!codigo)return toast("No se pudo generar el código, probá de nuevo");
+    if(nombre&&!DB.barberos.find(b=>b.n===nombre)){DB.barberos.push({n:nombre,com:0.5,foto:null});save();guardarConfigRemota();}
+    S.nuevoInvNombre=nombre;S.nuevoInvCodigo=codigo;
+    S.invitaciones.unshift({codigo,tipo:"barber",nombre:nombre||null,usado:false});
+    render();
+    toast("Código generado ✓");
+  };
   const ex=$("#export");if(ex)ex.onclick=()=>{const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);const slug=(DB.nombre||"barberia").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||"barberia";a.download=slug+"-respaldo-"+today()+".json";a.click();toast("Respaldo descargado ✓");};
   const im=$("#import");if(im)im.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.barberos||!d.precios)throw 0;DB=d;commit("Datos restaurados ✓");}catch(err){toast("Archivo no válido");}};r.readAsText(f);};
-  const w=$("#wipe");if(w)w.onclick=()=>{if(confirm("¿Borrar TODOS los datos cargados (cortes, ventas, gastos, turnos)? Se mantienen barberos, precios, productos, nombre y logo.")){DB.servicios=[];DB.ventas=[];DB.gastos=[];DB.turnos=[];commit("Listo, empezá a cargar ✂");}};
+  const w=$("#wipe");if(w)w.onclick=()=>{if(confirm("¿Borrar TODOS los datos cargados (cortes, ventas, gastos, turnos)? Se mantienen barberos, precios, productos, nombre y logo.")){DB.servicios=[];DB.ventas=[];DB.gastos=[];DB.turnos=[];commit("Listo, empezá a cargar");}};
   const cn=$("#cfg-nombre-save");if(cn)cn.onclick=()=>{const n=val("#cfg-nombre");if(!n)return toast("Poné un nombre");DB.nombre=n;commit("Nombre actualizado ✓");};
   const li=$("#cfg-logo-in");if(li)li.onchange=e=>{const f=e.target.files[0];leerFotoComoDataURL(f,240,dataUrl=>{DB.logo=dataUrl;commit("Logo actualizado ✓");});};
   const lr=$("#cfg-logo-reset");if(lr)lr.onclick=()=>{DB.logo=null;commit("Logo restablecido");};
@@ -1298,8 +1369,8 @@ async function resolverPerfilYArrancar(){
     sb.auth.onAuthStateChange((_event,session)=>{
       const prevId=S.authUser&&S.authUser.id;
       S.authUser=session?session.user:null;
-      if(S.authUser&&S.authUser.id!==prevId){S.accesos=[];resolverPerfilYArrancar();}
-      else if(!S.authUser){S.profile=null;S.perfil=null;S.accesos=[];render();}
+      if(S.authUser&&S.authUser.id!==prevId){S.accesos=[];S.accesosCargados=false;S.invitaciones=[];S.invitacionesCargadas=false;resolverPerfilYArrancar();}
+      else if(!S.authUser){S.profile=null;S.perfil=null;S.accesos=[];S.accesosCargados=false;S.invitaciones=[];S.invitacionesCargadas=false;S.nuevoInvCodigo=null;S.nuevoInvNombre="";render();}
     });
     S.authReady=true;
     if(S.authUser)await resolverPerfilYArrancar();else render();
