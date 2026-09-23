@@ -635,6 +635,26 @@ function aplicarPerfil(){
   else{S.profile={type:"barber",name:S.perfil.nombre};S.tab="cargar";}
 }
 
+/* ================= CAMBIO RÁPIDO DE PERFIL (solo para la cuenta del dueño) =================
+   El dueño tiene UNA cuenta real (mail+clave), pero en el local (mostrador compartido) varios
+   barberos van cargando sus cortes durante el día. En vez de que cada barbero necesite su propia
+   cuenta y login, el dueño entra una vez y de ahí puede "actuar como" cualquier barbero para
+   cargar rápido, sin volver a loguearse — igual que el selector de siempre, pero ahora atrás de
+   un login real (los barberos que SÍ tienen su propia cuenta invitada entran directo a la suya). */
+function viewQuickSwitch(){
+  return `<div class="selstage fade"><div class="big-logo"><img src="${DB.logo||DEFAULT_LOGO}" alt="Logo"></div>
+    <h2>¿Quién está cargando?</h2><p class="sub">Elegí el perfil para cargar rápido. Podés cambiar cuando quieras sin volver a loguearte.</p>
+    <div class="profgrid">
+      ${DB.barberos.map(b=>`<button class="profcard" data-qs-barb="${esc(b.n)}">${avatarHTML(b.n,b.foto,"pav")}<b>${esc(b.n)}</b><small>Barbero</small></button>`).join("")}
+      <button class="profcard owner" data-qs-owner="1"><span class="pav">D</span><b>Dueño</b><small>Panel completo</small></button>
+    </div>
+  </div></div>`;
+}
+function bindQuickSwitch(){
+  document.querySelectorAll("[data-qs-barb]").forEach(b=>b.onclick=()=>{S.profile={type:"barber",name:b.dataset.qsBarb};S.tab="cargar";render();});
+  const ow=$("[data-qs-owner]");if(ow)ow.onclick=()=>{S.profile={type:"owner"};S.tab="finanzas";S.subFin="panel";render();};
+}
+
 /* ================= WHO SLOT ================= */
 function renderWho(){
   const slot=$("#whoslot");
@@ -643,8 +663,11 @@ function renderWho(){
   const name=isOwner?"Dueño":S.profile.name;
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
   const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
+  const esCuentaOwner=!!(sb&&S.authUser&&S.perfil&&S.perfil.tipo==="owner");
+  const switchBtn=esCuentaOwner?`<button class="swap" id="switchbtn">Cambiar perfil</button>`:"";
   const swapLabel=sb&&S.authUser?"Cerrar sesión":"Cambiar";
-  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div><button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div>${switchBtn}<button class="swap" id="swapbtn">${swapLabel}</button></div></div>`;
+  const sw=$("#switchbtn");if(sw)sw.onclick=()=>{S.profile=null;render();};
   $("#swapbtn").onclick=async()=>{
     if(sb&&S.authUser){await sb.auth.signOut();}
     else{S.profile=null;S.ownerUnlocked=false;render();}
@@ -1316,6 +1339,8 @@ function render(){
     if(!S.authReady){root.innerHTML="";$("#foot").textContent="";return;}
     if(!S.authUser){root.innerHTML=viewAuth();bindAuth();$("#foot").textContent="";return;}
     if(!S.perfil){root.innerHTML=viewOnboarding();bindOnboarding();$("#foot").textContent="";return;}
+    if(S.perfil.tipo==="owner"&&!S.profile){root.innerHTML=viewQuickSwitch();bindQuickSwitch();$("#foot").textContent="";return;}
+    if(!S.profile)aplicarPerfil();
   }else{
     // sin backend configurado (plantilla sin conectar todavía): selector local + PIN, como antes.
     if(!S.profile){root.innerHTML=viewSelect();bindSelect();$("#foot").textContent="Prototipo funcional · los datos se guardan en esta computadora.";return;}
