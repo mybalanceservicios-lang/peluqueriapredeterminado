@@ -99,8 +99,8 @@ const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 const DIAS_SEM=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 
 /* ---------- Supabase ---------- */
-const SUPABASE_URL="https://gzlfashxopkoeujuxufo.supabase.co";
-const SUPABASE_ANON_KEY="sb_publishable_e3CMRZDaFaFDTEGJJ7Py-Q_dbVyS6dL";
+const SUPABASE_URL="https://bvwzzcbvtpkvabmuswrl.supabase.co";
+const SUPABASE_ANON_KEY="sb_publishable_kXM6tWRjQre2tu1ljbWG4Q_i-8TySXO";
 const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.barbero,cliente:r.cliente,telefono:r.telefono,servicio:r.servicio,estado:r.estado,origen:r.origen,servicioId:r.servicio_id};}
 // evita que un pedido colgado (wifi/datos con problemas) deje la página esperando para siempre
