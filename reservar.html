@@ -101,7 +101,8 @@ const DIAS_SEM=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sáb
 /* ---------- Supabase ---------- */
 const SUPABASE_URL="https://bvwzzcbvtpkvabmuswrl.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable_kXM6tWRjQre2tu1ljbWG4Q_i-8TySXO";
-const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+const sbConfigurado=SUPABASE_URL&&!SUPABASE_URL.includes("tu-proyecto")&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.includes("tu-publishable-key");
+const sb=(sbConfigurado&&typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.barbero,cliente:r.cliente,telefono:r.telefono,servicio:r.servicio,estado:r.estado,origen:r.origen,servicioId:r.servicio_id};}
 // evita que un pedido colgado (wifi/datos con problemas) deje la página esperando para siempre
 function conTimeout(promesa,ms){

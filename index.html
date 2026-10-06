@@ -217,7 +217,10 @@ const DEFAULT_LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 /* ---------- Supabase: turnos y config compartidos entre dispositivos ---------- */
 const SUPABASE_URL="https://bvwzzcbvtpkvabmuswrl.supabase.co";
 const SUPABASE_ANON_KEY="sb_publishable_kXM6tWRjQre2tu1ljbWG4Q_i-8TySXO";
-const sb=(typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+// si todavía quedan las credenciales de ejemplo (plantilla recién clonada, sin conectar a un proyecto
+// real), lo tratamos como "sin backend" en vez de armar un cliente que nunca va a poder loguearse.
+const sbConfigurado=SUPABASE_URL&&!SUPABASE_URL.includes("tu-proyecto")&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.includes("tu-publishable-key");
+const sb=(sbConfigurado&&typeof window.supabase!=="undefined")?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 // evita que un pedido colgado (wifi/datos con problemas) deje algo esperando para siempre
 function conTimeout(promesa,ms){
   return Promise.race([
@@ -374,7 +377,7 @@ function upsertClienteLocal(nombre,telefono){
 /* ---------- state ---------- */
 const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
   authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
-  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,
+  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,
   invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
@@ -709,6 +712,29 @@ function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p>
 function curBarbero(){return S.profile.type==="barber"?S.profile.name:null;}
 
 /* ================= CARGAR (barbero + dueño) ================= */
+function facturaCheckHTML(prefix){
+  return `<div class="bf" style="width:100%"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600"><input type="checkbox" id="${prefix}-fact-chk"> El cliente pidió factura</label></div>
+    <div id="${prefix}-fact-wrap" style="display:none;width:100%">
+      <div class="bf-row">
+        <div class="bf grow"><label>Nombre o razón social</label><input id="${prefix}-fact-nombre" placeholder="Ej: Juan Pérez"></div>
+        <div class="bf"><label>CUIT / DNI</label><input id="${prefix}-fact-doc" placeholder="Ej: 20-12345678-9"></div>
+      </div>
+    </div>`;
+}
+function facturarCard(f){
+  const texto=`Factura — ${DB.nombre||"Barbería"}\nCliente: ${f.cliente}\nCUIT/DNI: ${f.doc||"(Consumidor Final)"}\nConcepto: ${f.concepto}\nMonto: ${money(f.monto)}\nFecha: ${fdate(f.fecha)}`;
+  return `<div class="card fade" style="border-color:var(--accent);background:var(--accent-soft)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><h3 style="margin:0 0 4px">Facturar este cobro</h3><div class="sub">Copiá los datos y completalos en AFIP/ARCA (Comprobantes en línea) con tu Clave Fiscal.</div></div>
+      <button class="tbtn icon" id="fact-cerrar" title="Cerrar">✕</button>
+    </div>
+    <pre id="fact-texto" style="white-space:pre-wrap;background:var(--panel);padding:10px;border-radius:8px;font-size:13px;margin:10px 0;border:1px solid var(--line)">${esc(texto)}</pre>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="addbtn" id="fact-copiar">Copiar datos</button>
+      <a class="tbtn" href="https://www.afip.gob.ar/comprobantes-en-linea" target="_blank" rel="noopener">Abrir AFIP / ARCA →</a>
+    </div>
+  </div>`;
+}
 function tCargar(){
   const isOwner=S.profile.type==="owner";
   const who=isOwner?"":`<b>${esc(S.profile.name)}</b> · `;
@@ -726,6 +752,7 @@ function tCargar(){
       </div>
       <div class="bf"><label>Cliente / Nota (opcional)</label><input id="c-desc" placeholder="Ej: Juan Pérez, o algo que te ayude a recordar"></div>
       <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="c-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      ${facturaCheckHTML("c")}
       <button class="cargar" id="c-add">✓ Cargar corte</button>
     </div>`;
   }else{
@@ -738,10 +765,11 @@ function tCargar(){
         <div class="bf"><label>Fecha</label><input type="date" id="p-fecha" value="${today()}"></div>
       </div>
       <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="p-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      ${facturaCheckHTML("p")}
       <button class="cargar" id="p-add">✓ Cargar venta</button>
     </div>`;
   }
-  return head("Cargar","Rápido: "+who+"elegí y tocá Cargar.")+seg+form;
+  return head("Cargar","Rápido: "+who+"elegí y tocá Cargar.")+(S.facturarPendiente?facturarCard(S.facturarPendiente):"")+seg+form;
 }
 function bindCargar(){
   document.querySelectorAll("[data-lt]").forEach(b=>b.onclick=()=>{S.loadType=b.dataset.lt;render();});
@@ -764,7 +792,9 @@ function bindCargar(){
     if(precio<=0)return toast("Poné un precio");
     const barbero=$("#c-barb")?val("#c-barb"):S.profile.name;
     const com=comDe(barbero);
-    DB.servicios.push({id:pid(),fecha:val("#c-fecha"),hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),pago:val("#c-pago")||"Efectivo",comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(val("#c-fecha"))});
+    const fecha=val("#c-fecha");
+    DB.servicios.push({id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),pago:val("#c-pago")||"Efectivo",comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)});
+    S.facturarPendiente=($("#c-fact-chk")&&$("#c-fact-chk").checked)?{cliente:val("#c-fact-nombre")||val("#c-desc")||"Consumidor Final",doc:val("#c-fact-doc"),concepto:tipo,monto:precio,fecha}:null;
     commit("Corte cargado ✓  ("+esc(barbero)+")");
   };
   const psel=$("#p-prod");if(psel)psel.onchange=()=>{const o=psel.selectedOptions[0];if(o&&o.dataset.precio)$("#p-precio").value=o.dataset.precio;};
@@ -773,8 +803,20 @@ function bindCargar(){
     const cant=num("#p-cant")||1, precioU=num("#p-precio"), costoU=prod?prod.costo:0;
     if(precioU<=0)return toast("Poné un precio");
     const barbero=$("#p-barb")?val("#p-barb"):S.profile.name;
-    DB.ventas.push({id:pid(),fecha:val("#p-fecha"),barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),pago:val("#p-pago")||"Efectivo",mes:monthOf(val("#p-fecha"))});
+    const fecha=val("#p-fecha");
+    DB.ventas.push({id:pid(),fecha,barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),pago:val("#p-pago")||"Efectivo",mes:monthOf(fecha)});
+    S.facturarPendiente=($("#p-fact-chk")&&$("#p-fact-chk").checked)?{cliente:val("#p-fact-nombre")||"Consumidor Final",doc:val("#p-fact-doc"),concepto:nombre,monto:cant*precioU,fecha}:null;
     commit("Venta cargada ✓");
+  };
+  ["c","p"].forEach(prefix=>{
+    const chk=$(`#${prefix}-fact-chk`);if(chk)chk.onchange=()=>{$(`#${prefix}-fact-wrap`).style.display=chk.checked?"":"none";};
+  });
+  const fcerrar=$("#fact-cerrar");if(fcerrar)fcerrar.onclick=()=>{S.facturarPendiente=null;render();};
+  const fcopiar=$("#fact-copiar");if(fcopiar)fcopiar.onclick=()=>{
+    const t=$("#fact-texto").textContent;
+    (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject())
+      .then(()=>toast("Datos copiados ✓"))
+      .catch(()=>toast("No se pudo copiar — seleccioná el texto a mano"));
   };
 }
 
