@@ -1,7 +1,12 @@
 // Función de backend: genera un cobro de Mercado Pago (Checkout Pro) y lo deja
-// registrado como "pendiente" en la tabla cobros_mp. El navegador NUNCA ve ni toca
-// el token de Mercado Pago — ese token vive solo acá, como secreto de esta función
-// (ver "supabase secrets set MP_ACCESS_TOKEN=..." en el README).
+// registrado como "pendiente" en la tabla cobros_mp.
+//
+// El token de Mercado Pago NO es un secreto fijo de esta función — es el que cada
+// negocio pegó desde Configuración → "Conectar Mercado Pago" (queda guardado en
+// config_mp, una tabla que el navegador puede escribir pero nunca volver a leer).
+// Esta función sí puede leerlo porque usa la service role key, que nunca sale del
+// servidor. Así, el mismo código sirve para cualquier cliente que use esta plantilla —
+// lo único que cambia entre un negocio y otro es el token que cada uno cargó.
 //
 // Quién puede llamar esta función: cualquier persona logueada con un perfil asignado
 // (dueño o barbero real) — se verifica reenviando su JWT a Supabase y dejando que las
@@ -34,8 +39,7 @@ Deno.serve(async (req) => {
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const MP_ACCESS_TOKEN = Deno.env.get("MP_ACCESS_TOKEN");
-    if (!MP_ACCESS_TOKEN) return json({ error: "Mercado Pago no está configurado en este servidor (falta MP_ACCESS_TOKEN)." }, 500);
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // Cliente que actúa COMO quien llama (reenvía su sesión) — así las políticas de RLS
     // deciden si puede o no generar un cobro, no esta función.
@@ -44,6 +48,14 @@ Deno.serve(async (req) => {
     });
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ error: "Sesión inválida" }, 401);
+
+    // Acá sí hace falta la service role: config_mp no tiene policy de select para nadie.
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const { data: cfg } = await supabaseAdmin.from("config_mp").select("mp_access_token").eq("id", "default").maybeSingle();
+    const MP_ACCESS_TOKEN = cfg?.mp_access_token;
+    if (!MP_ACCESS_TOKEN) {
+      return json({ error: "Mercado Pago todavía no está conectado. Pedile al dueño que lo conecte desde Configuración." }, 400);
+    }
 
     const cobroId = crypto.randomUUID();
 
@@ -59,7 +71,7 @@ Deno.serve(async (req) => {
     if (!prefRes.ok) {
       const detalle = await prefRes.text();
       console.error("Error de Mercado Pago al crear preferencia:", detalle);
-      return json({ error: "No se pudo crear el cobro en Mercado Pago" }, 502);
+      return json({ error: "No se pudo crear el cobro en Mercado Pago. Revisá que el token conectado sea válido." }, 502);
     }
     const pref = await prefRes.json();
 

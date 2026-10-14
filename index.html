@@ -240,6 +240,7 @@ async function cargarConfigRemota(){
     if(data.horario)DB.horario=data.horario;
     if(data.precios&&data.precios.length)DB.precios=data.precios;
     if(data.barberos&&data.barberos.length)DB.barberos=data.barberos;
+    DB.mpConectado=!!data.mp_conectado;
     return true;
   }catch(e){return false;}
 }
@@ -248,6 +249,18 @@ async function guardarConfigRemota(){
   try{
     await conTimeout(sb.from("config").update({nombre:DB.nombre,logo:DB.logo,horario:DB.horario,precios:DB.precios,barberos:DB.barberos,updated_at:new Date().toISOString()}).eq("id","default"));
   }catch(e){}
+}
+// guarda el token de Mercado Pago de ESTE negocio en config_mp (write-only: nadie puede
+// volver a leerlo desde el navegador una vez guardado) y prende la bandera mp_conectado
+// en config (esa sí es de lectura pública para el personal, no tiene datos sensibles).
+async function guardarMercadoPagoConectado(token,secret){
+  if(!sb)return false;
+  try{
+    const {error:e1}=await conTimeout(sb.from("config_mp").upsert({id:"default",mp_access_token:token,mp_webhook_secret:secret,actualizado_en:new Date().toISOString()}));
+    if(e1)return false;
+    const {error:e2}=await conTimeout(sb.from("config").update({mp_conectado:true}).eq("id","default"));
+    return !e2;
+  }catch(e){return false;}
 }
 function turnoARemoto(t){return {id:t.id,fecha:t.fecha,hora:t.hora,barbero:t.barbero,cliente:t.cliente,telefono:t.telefono||null,servicio:t.servicio,estado:t.estado,origen:t.origen||"app",servicio_id:t.servicioId||null};}
 function turnoDeRemoto(r){return {id:r.id,fecha:r.fecha,hora:r.hora,barbero:r.barbero,cliente:r.cliente,telefono:r.telefono,servicio:r.servicio,estado:r.estado,origen:r.origen,servicioId:r.servicio_id};}
@@ -359,6 +372,7 @@ function defaultDB(){
     turnos:[],
     cierres:[],
     clientes:[],
+    mpConectado:false,
   };
 }
 function pid(){return Math.random().toString(36).slice(2,9);}
@@ -1401,6 +1415,19 @@ function tConfig(){
       ${S.accesos.length?S.accesos.map(a=>`<div class="perm-row"><span class="pn">${esc(a.email||"(sin mail)")}<small>${a.tipo==="owner"?"Dueño":"Barbero"+(a.nombre?" · "+esc(a.nombre):"")}</small></span><button class="del" data-delacceso="${a.id}" title="Quitar el rol asignado (no borra la cuenta de acceso)">✕</button></div>`).join(""):'<div class="empty">Todavía no hay nadie más con acceso.</div>'}
       </div>`
     :"";
+  const webhookUrl=SUPABASE_URL+"/functions/v1/webhook-mp";
+  const mpCard=(usaLoginReal&&S.profile.type==="owner")
+    ?`<div class="card"><h3>Conectar Mercado Pago</h3><div class="sub">Pegá el token de TU cuenta de Mercado Pago para que los cobros con QR lleguen directo a vos. ${DB.mpConectado?'<span class="pill ok">✓ Conectado</span>':'<span class="pill pend">Sin conectar</span>'}</div>
+      <div class="addform" style="margin-bottom:10px">
+        <div class="ff grow"><label>Access Token</label><input type="password" id="mp-token" placeholder="APP_USR-..."></div>
+        <div class="ff grow"><label>Clave de firma del webhook</label><input type="password" id="mp-secret" placeholder="De la sección Webhooks"></div>
+        <button class="addbtn" id="mp-guardar">${DB.mpConectado?"Actualizar":"Conectar"}</button>
+      </div>
+      <div class="sub">Los conseguís en <a href="https://www.mercadopago.com.ar/developers/panel" target="_blank" rel="noopener">mercadopago.com.ar/developers/panel</a>, creando una aplicación: el Access Token está en "Credenciales de producción", y la clave de firma en "Webhooks". Ahí mismo tenés que pegar esta URL como notificación de webhooks:</div>
+      <div class="totbar" style="margin-top:8px"><span style="word-break:break-all;font-family:ui-monospace,monospace;font-size:12px">${esc(webhookUrl)}</span><button class="tbtn sm" id="mp-copiar-webhook">Copiar</button></div>
+      <div class="sub" style="margin-top:8px">Una vez guardado, no se puede volver a ver el token (por seguridad) — si necesitás cambiarlo, simplemente pegá el nuevo y tocá "Actualizar".</div>
+      </div>`
+    :"";
   return head("Configuración","Marca, clave, respaldo y datos.",true)
   +`<div class="card"><h3>Nombre y logo de la barbería</h3><div class="sub">Se ve arriba de todo y en la pantalla de selección de perfil</div>
     <div class="addform" style="margin-bottom:14px"><div class="ff grow"><label>Nombre de la barbería</label><input id="cfg-nombre" value="${esc(DB.nombre||"Mi Barbería")}" placeholder="Ej: Barbería Don Pepe"></div><button class="addbtn" id="cfg-nombre-save">Guardar nombre</button></div>
@@ -1413,6 +1440,7 @@ function tConfig(){
     </div></div>
   ${seguridadCard}
   ${pinCard}
+  ${mpCard}
   ${invitarCard}
   ${accesosCard}
   <div class="card"><h3>Respaldo de datos</h3><div class="sub">Guardá una copia por las dudas (recomendado hacerlo cada tanto). Podés restaurarla en cualquier compu.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="savebtn" id="export">Descargar respaldo</button><label class="tbtn" style="cursor:pointer">Restaurar respaldo<input type="file" id="import" accept="application/json" style="display:none"></label></div></div>
@@ -1447,6 +1475,23 @@ function bindConfig(){
     S.invitaciones.unshift({codigo,tipo,nombre:nombre||null,usado:false});
     render();
     toast("Código generado ✓");
+  };
+  const mpg=$("#mp-guardar");if(mpg)mpg.onclick=async()=>{
+    const token=val("#mp-token"),secret=val("#mp-secret");
+    if(!token||!secret)return toast("Pegá el Access Token y la clave de firma");
+    mpg.disabled=true;mpg.textContent="Guardando…";
+    const ok=await guardarMercadoPagoConectado(token,secret);
+    mpg.disabled=false;mpg.textContent=DB.mpConectado?"Actualizar":"Conectar";
+    if(!ok)return toast("No se pudo guardar — probá de nuevo");
+    DB.mpConectado=true;
+    render();
+    toast("Mercado Pago conectado ✓");
+  };
+  const mpw=$("#mp-copiar-webhook");if(mpw)mpw.onclick=()=>{
+    const url=SUPABASE_URL+"/functions/v1/webhook-mp";
+    (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(url):Promise.reject())
+      .then(()=>toast("URL copiada ✓"))
+      .catch(()=>prompt("Copiá esta URL:",url));
   };
   const ex=$("#export");if(ex)ex.onclick=()=>{const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);const slug=(DB.nombre||"barberia").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||"barberia";a.download=slug+"-respaldo-"+today()+".json";a.click();toast("Respaldo descargado ✓");};
   const im=$("#import");if(im)im.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.barberos||!d.precios)throw 0;DB=d;commit("Datos restaurados ✓");}catch(err){toast("Archivo no válido");}};r.readAsText(f);};
@@ -1494,6 +1539,7 @@ if(DB.nombre===undefined)DB.nombre="Mi Barbería";
 if(DB.logo===undefined)DB.logo=null;
 if(DB.cierres===undefined)DB.cierres=[];
 if(DB.clientes===undefined)DB.clientes=[];
+if(DB.mpConectado===undefined)DB.mpConectado=false;
 if(DB.horario===undefined)DB.horario={apertura:"09:00",cierre:"20:00",duracion:30,dias:[1,2,3,4,5,6]};
 (DB.precios||[]).forEach(p=>{if(p.visible===undefined)p.visible=true;});
 (DB.barberos||[]).forEach(b=>{if(b.foto===undefined)b.foto=null;});

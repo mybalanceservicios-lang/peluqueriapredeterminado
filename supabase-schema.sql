@@ -187,6 +187,30 @@ create policy "cobros_mp insert con perfil" on cobros_mp for insert with check (
 -- (así el sistema sabe que se pagó sin tener que estar preguntando todo el tiempo).
 alter publication supabase_realtime add table cobros_mp;
 
+-- config_mp: acá vive el Access Token y la clave de webhook de la cuenta de Mercado Pago
+-- DE ESTE NEGOCIO PUNTUAL — cada barbería/estética/gimnasio pega el suyo desde
+-- Configuración → "Conectar Mercado Pago", sin que nadie tenga que tocar Supabase ni
+-- redesplegar nada. A propósito NO hay ninguna policy de "select": el dueño puede
+-- escribir su token, pero ni él ni nadie más puede volver a leerlo desde el navegador
+-- una vez guardado — solo lo lee supabase/functions (con la service role key, que nunca
+-- sale del servidor). Si algún día hace falta cambiar el token, se pisa con uno nuevo,
+-- no se "edita" el existente.
+create table if not exists config_mp (
+  id text primary key default 'default',
+  mp_access_token text,
+  mp_webhook_secret text,
+  actualizado_en timestamptz default now()
+);
+alter table config_mp enable row level security;
+create policy "config_mp insert dueño" on config_mp for insert
+  with check (exists (select 1 from perfiles where id = auth.uid() and tipo = 'owner'));
+create policy "config_mp update dueño" on config_mp for update
+  using (exists (select 1 from perfiles where id = auth.uid() and tipo = 'owner'));
+
+-- Bandera simple (sin datos sensibles) para que la app pueda mostrar "✓ Conectado"
+-- sin necesitar leer el token real.
+alter table config add column if not exists mp_conectado boolean not null default false;
+
 
 -- ============================================================
 -- MUY IMPORTANTE: en el dashboard de Supabase, Authentication -> Providers -> Email,

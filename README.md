@@ -36,24 +36,25 @@ Para el dueño, la navegación está organizada en 3 secciones:
 Configuración (nombre, logo, sesión, invitar barberos, accesos, respaldo JSON) accesible desde el ícono de engranaje junto al perfil.
 
 ## Cobrar con Mercado Pago (QR, confirmación automática)
-Al cargar un corte o una venta, elegir "Mercado Pago" como medio de pago muestra un botón "Cobrar con Mercado Pago" en vez de cargar directo: genera un QR real (Checkout Pro) y el corte/venta queda **pendiente** — recién se carga solo, sin tocar nada, cuando Mercado Pago confirma que el cliente pagó. Esto necesita dos funciones de backend (Edge Functions de Supabase) además del proyecto de Supabase ya configurado:
+Al cargar un corte o una venta, elegir "Mercado Pago" como medio de pago muestra un botón "Cobrar con Mercado Pago" en vez de cargar directo: genera un QR real (Checkout Pro) y el corte/venta queda **pendiente** — recién se carga solo, sin tocar nada, cuando Mercado Pago confirma que el cliente pagó.
 
-1. Crear una aplicación en [mercadopago.com.ar/developers/panel](https://www.mercadopago.com.ar/developers/panel) (con la cuenta de Mercado Pago del negocio) y copiar el **Access Token de producción** (nunca el de prueba una vez que el negocio ya cobra de verdad).
-2. En esa misma aplicación, activar **Webhooks** y copiar la **clave secreta de firma** (la usa `webhook-mp` para verificar que el aviso realmente vino de Mercado Pago).
-3. Instalar la [CLI de Supabase](https://supabase.com/docs/guides/cli) y hacer login (`supabase login`), vincular el proyecto (`supabase link --project-ref TU_PROJECT_REF` — el ref está en la URL del proyecto en el dashboard).
-4. Cargar los secretos (reemplazá por los valores reales):
-   ```
-   supabase secrets set MP_ACCESS_TOKEN=APP_USR-xxxxxxxx MP_WEBHOOK_SECRET=xxxxxxxx
-   ```
-5. Desplegar las dos funciones:
+**Importante para quien vende/administra esta plantilla a varios negocios**: el Access Token de Mercado Pago NO se configura por archivo ni por CLI — cada negocio pega el suyo propio desde adentro de la app (Configuración → "Conectar Mercado Pago"), así los cobros le llegan a SU cuenta. Las dos funciones de backend (Edge Functions) se despliegan **una sola vez por proyecto de Supabase**, al armar el sistema de cada cliente — después de eso, conectar, cambiar o reconectar el Mercado Pago de ese negocio es 100% self-service, sin volver a tocar la terminal:
+
+1. Instalar la [CLI de Supabase](https://supabase.com/docs/guides/cli) y hacer login (`supabase login`), vincular el proyecto (`supabase link --project-ref TU_PROJECT_REF` — el ref está en la URL del proyecto en el dashboard).
+2. Desplegar las dos funciones (esto es todo lo que hace falta por consola, una vez por proyecto — no llevan secretos propios, así que no hace falta `supabase secrets set`):
    ```
    supabase functions deploy crear-pago-mp
    supabase functions deploy webhook-mp --no-verify-jwt
    ```
    (`webhook-mp` va sin verificación de JWT porque la llama Mercado Pago, no un usuario logueado de la app — su seguridad es la firma, no un token de Supabase.)
-6. Correr (si no lo corriste ya) el bloque de `cobros_mp` de `supabase-schema.sql` — crea la tabla, sus políticas, y la habilita para Realtime (así el navegador se entera solo, al instante, cuando se confirma un pago).
+3. Correr (si no lo corriste ya) el bloque de `cobros_mp` + `config_mp` de `supabase-schema.sql` — crea las tablas, sus políticas, y habilita `cobros_mp` para Realtime (así el navegador se entera solo, al instante, cuando se confirma un pago).
 
-El token de Mercado Pago **nunca** queda en `index.html` ni en ningún archivo del repo — vive solo como secreto de las funciones, en el servidor. Si algo de esto no está configurado, el botón de Mercado Pago simplemente no genera el cobro y avisa que hace falta terminar de conectarlo — el resto del sistema sigue funcionando normal mientras tanto.
+De ahí en más, el **dueño de cada negocio** hace esto desde la app, sin ayuda técnica:
+1. Entra a [mercadopago.com.ar/developers/panel](https://www.mercadopago.com.ar/developers/panel) con SU cuenta de Mercado Pago, crea una aplicación, y copia el **Access Token de producción** (en "Credenciales de producción") y la **clave de firma del webhook** (en la sección "Webhooks" de esa misma aplicación).
+2. En esa sección de Webhooks de Mercado Pago, pega como URL de notificaciones la que el sistema le muestra en Configuración → "Conectar Mercado Pago" (botón "Copiar").
+3. Vuelve a `index.html`, va a Configuración → "Conectar Mercado Pago", pega el Access Token y la clave de firma, y toca "Conectar".
+
+El token queda guardado en una tabla (`config_mp`) que **ni el dueño ni nadie puede volver a leer desde el navegador** una vez guardado — solo las dos funciones de backend pueden leerlo (usan la service role key, que nunca sale del servidor). Si el dueño necesita cambiarlo, simplemente pega uno nuevo y lo pisa. Mientras no esté conectado, el botón de Mercado Pago avisa que falta conectarlo — el resto del sistema sigue funcionando normal.
 
 **Antes de usarlo con cobros reales**: la verificación de firma del webhook (`supabase/functions/webhook-mp/index.ts`) está armada siguiendo el esquema que documenta Mercado Pago, pero no se pudo probar contra la API real de Mercado Pago desde este entorno (sin acceso a internet para eso). Antes de cobrar en serio, hacé una prueba con un pago chico de verdad y confirmá en los logs de la función (`supabase functions logs webhook-mp`) que la firma se valida bien y el corte se carga solo.
 

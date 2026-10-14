@@ -4,9 +4,14 @@
 // si alguien manipulara la app desde las herramientas de desarrollador, no podría
 // "inventar" un pago.
 //
+// El Access Token y la clave de webhook NO son secretos fijos de esta función — son los
+// que el dueño de este negocio puntual pegó desde Configuración → "Conectar Mercado Pago"
+// (guardados en config_mp, con la service role key como única forma de leerlos). El mismo
+// código de esta función sirve para cualquier cliente que use esta plantilla.
+//
 // Dos verificaciones antes de confiar en cualquier cosa:
-// 1. La firma (x-signature) tiene que coincidir con el secreto de webhook de Mercado Pago
-//    (MP_WEBHOOK_SECRET) — así sabemos que el aviso vino realmente de Mercado Pago.
+// 1. La firma (x-signature) tiene que coincidir con la clave de webhook guardada en
+//    config_mp — así sabemos que el aviso realmente vino de Mercado Pago.
 // 2. Aun con la firma OK, no confiamos en el estado que venga en el cuerpo del aviso —
 //    le volvemos a preguntar a la API de Mercado Pago el estado real de ESE pago puntual.
 //
@@ -26,12 +31,15 @@ Deno.serve(async (req) => {
   // Mercado Pago no espera nada elaborado: siempre devolvemos 200 salvo que la firma
   // esté mal (ahí sí rechazamos), para que no reintente en loop por errores nuestros.
   try {
-    const MP_ACCESS_TOKEN = Deno.env.get("MP_ACCESS_TOKEN");
-    const MP_WEBHOOK_SECRET = Deno.env.get("MP_WEBHOOK_SECRET");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const { data: cfg } = await supabaseAdmin.from("config_mp").select("mp_access_token, mp_webhook_secret").eq("id", "default").maybeSingle();
+    const MP_ACCESS_TOKEN = cfg?.mp_access_token;
+    const MP_WEBHOOK_SECRET = cfg?.mp_webhook_secret;
     if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET) {
-      console.error("Falta MP_ACCESS_TOKEN o MP_WEBHOOK_SECRET en los secrets de la función");
+      console.error("Mercado Pago no está conectado (falta token o clave de webhook en config_mp)");
       return new Response("ok", { status: 200 });
     }
 
@@ -67,8 +75,7 @@ Deno.serve(async (req) => {
     const pago = await payRes.json();
 
     if (pago.status === "approved" && pago.external_reference) {
-      const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-      const { data: cobro } = await supabase
+      const { data: cobro } = await supabaseAdmin
         .from("cobros_mp")
         .select("*")
         .eq("id", pago.external_reference)
@@ -76,7 +83,7 @@ Deno.serve(async (req) => {
       // idempotencia: si ya estaba aprobado (Mercado Pago puede reenviar el mismo aviso
       // varias veces), no hacemos nada de nuevo.
       if (cobro && cobro.estado === "pendiente") {
-        await supabase
+        await supabaseAdmin
           .from("cobros_mp")
           .update({ estado: "aprobado", mp_payment_id: String(pago.id), confirmado_en: new Date().toISOString() })
           .eq("id", pago.external_reference);
