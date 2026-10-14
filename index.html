@@ -118,6 +118,7 @@
   .bf-row{display:flex;gap:12px;flex-wrap:wrap}
   .bf{display:flex;flex-direction:column;gap:6px;flex:1;min-width:130px}
   .bf label{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+  .hint{display:block;font-size:11.5px;color:var(--ink-3);margin-top:5px}
   .bf input,.bf select{background:var(--panel-2);border:1.5px solid var(--line);border-radius:11px;padding:13px 14px;font-size:16px;color:var(--ink);outline:none}
   .bf input:focus,.bf select:focus{border-color:var(--accent);background:var(--panel-3)}
   .bf .price-big{font-size:26px;font-weight:800;color:var(--accent-ink);letter-spacing:-.02em}
@@ -393,16 +394,16 @@ function upsertClienteLocal(nombre,telefono){
 /* ---------- state ---------- */
 const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
   authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
-  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,cobroMP:null,
+  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,cobroMP:null,ocultarMontos:false,
   invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
-const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
+const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago (alias)","Mercado Pago (QR)"];
 let DB=null;
 
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
 function load(){try{const r=localStorage.getItem(KEY);if(r)return JSON.parse(r);}catch(e){}return null;}
 
 /* ---------- derived ---------- */
-const money=n=>"$"+Math.round(n||0).toLocaleString("es-AR");
+const money=n=>S.ocultarMontos?"$••••":"$"+Math.round(n||0).toLocaleString("es-AR");
 const monthOf=d=>(d||"").slice(0,7);
 const sumBy=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const CURM=today().slice(0,7);
@@ -675,6 +676,12 @@ function bindQuickSwitch(){
 }
 
 /* ================= WHO SLOT ================= */
+// ícono de ojo (mostrar) / ojo tachado (oculto) — para el botón que esconde los montos del dueño
+function iconEye(off){
+  return off
+    ?`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    :`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+}
 function renderWho(){
   const slot=$("#whoslot");
   if(!S.profile||S.profile.type==="pin"){slot.innerHTML="";return;}
@@ -682,13 +689,15 @@ function renderWho(){
   const name=isOwner?"Dueño":S.profile.name;
   const barbObj=isOwner?null:DB.barberos.find(x=>x.n===name);
   const cfgBtn=isOwner?`<button class="tbtn icon" data-tab="config" title="Configuración">⚙</button>`:"";
+  const eyeBtn=isOwner?`<button class="tbtn icon" id="eyebtn" title="${S.ocultarMontos?"Mostrar montos":"Ocultar montos"}">${iconEye(S.ocultarMontos)}</button>`:"";
   const esCuentaOwner=!!(sb&&S.authUser&&S.perfil&&S.perfil.tipo==="owner");
   // la cuenta del dueño cierra sesión desde Configuración (evita tocarlo sin querer al lado de "Cambiar perfil");
   // un barbero con cuenta propia no tiene Configuración, así que a él se le deja "Cerrar sesión" acá.
   const accionBtn=esCuentaOwner
     ?`<button class="swap" id="switchbtn">Cambiar perfil</button>`
     :`<button class="swap" id="swapbtn">${sb&&S.authUser?"Cerrar sesión":"Cambiar"}</button>`;
-  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div>${accionBtn}</div></div>`;
+  slot.innerHTML=`<div style="display:flex;align-items:center;gap:8px">${eyeBtn}${cfgBtn}<div class="who">${isOwner?'<span class="av" style="background:var(--accent);color:#1a1206">D</span>':avatarHTML(name,barbObj&&barbObj.foto,"av")}<div><b>${esc(name)}</b><small>${isOwner?"Modo privado":"Barbero"}</small></div>${accionBtn}</div></div>`;
+  const eb=$("#eyebtn");if(eb)eb.onclick=()=>{S.ocultarMontos=!S.ocultarMontos;render();};
   const sw=$("#switchbtn");if(sw)sw.onclick=()=>{S.profile=null;render();};
   const swap=$("#swapbtn");if(swap)swap.onclick=async()=>{
     if(sb&&S.authUser){await sb.auth.signOut();}
@@ -726,6 +735,16 @@ function renderTab(){
 }
 function head(t,s,owner){return `<div class="head"><div><h2>${t}</h2><p>${s}</p></div>${owner?'<span class="ownerband">Solo dueño</span>':""}</div>`;}
 function curBarbero(){return S.profile.type==="barber"?S.profile.name:null;}
+// opciones de medio de pago para cobrar un corte/venta — "Mercado Pago (QR)" queda
+// deshabilitada hasta que el dueño conecte su cuenta desde Configuración, así nadie la
+// elige pensando que va a generar un cobro cuando en realidad no hay nada conectado.
+function pagoOptionsHTML(){
+  return PAGOS.map(m=>{
+    const esQR=m==="Mercado Pago (QR)";
+    const off=esQR&&!DB.mpConectado;
+    return `<option ${off?"disabled":""}>${m}${off?" (sin conectar)":""}</option>`;
+  }).join("");
+}
 
 /* ================= CARGAR (barbero + dueño) ================= */
 function facturaCheckHTML(prefix){
@@ -759,6 +778,7 @@ function facturarCard(f){
 function qrMP(url){return "https://api.qrserver.com/v1/create-qr-code/?size=260x260&data="+encodeURIComponent(url);}
 async function iniciarCobroMP(tipoCarga,payload,monto,concepto){
   if(!sb||!S.authUser)return toast("Cobrar con Mercado Pago necesita estar conectado con tu cuenta");
+  if(!DB.mpConectado)return toast("Conectá Mercado Pago desde Configuración primero");
   S.cobroMP={estado:"generando"};render();
   try{
     const {data:{session}}=await sb.auth.getSession();
@@ -830,7 +850,7 @@ function tCargar(){
         <div class="bf"><label>Hora</label><input type="time" id="c-hora" value="${nowTime()}"></div>
       </div>
       <div class="bf"><label>Cliente / Nota (opcional)</label><input id="c-desc" placeholder="Ej: Juan Pérez, o algo que te ayude a recordar"></div>
-      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="c-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="c-pago">${pagoOptionsHTML()}</select>${DB.mpConectado?"":'<span class="hint">Para cobrar con QR, conectá Mercado Pago desde Configuración</span>'}</div>
       ${facturaCheckHTML("c")}
       <button class="cargar" id="c-add">✓ Cargar corte</button>
     </div>`;
@@ -843,7 +863,7 @@ function tCargar(){
         <div class="bf"><label>Precio unitario</label><input type="number" id="p-precio" value="${DB.productos[0]?DB.productos[0].precio:0}" min="0"></div>
         <div class="bf"><label>Fecha</label><input type="date" id="p-fecha" value="${today()}"></div>
       </div>
-      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="p-pago">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+      <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="p-pago">${pagoOptionsHTML()}</select>${DB.mpConectado?"":'<span class="hint">Para cobrar con QR, conectá Mercado Pago desde Configuración</span>'}</div>
       ${facturaCheckHTML("p")}
       <button class="cargar" id="p-add">✓ Cargar venta</button>
     </div>`;
@@ -868,7 +888,7 @@ function bindCargar(){
   ["c","p"].forEach(prefix=>{
     const sel=$(`#${prefix}-pago`);const btn=$(`#${prefix}-add`);
     if(sel&&btn){
-      const esMP=()=>sel.value==="Mercado Pago";
+      const esMP=()=>sel.value==="Mercado Pago (QR)";
       const actualizarBtn=()=>{btn.textContent=esMP()?"Cobrar con Mercado Pago":(prefix==="c"?"✓ Cargar corte":"✓ Cargar venta");};
       actualizarBtn();
       sel.onchange=actualizarBtn;
@@ -882,8 +902,9 @@ function bindCargar(){
     const com=comDe(barbero);
     const fecha=val("#c-fecha");
     const servicio={id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)};
-    if(val("#c-pago")==="Mercado Pago"){
-      iniciarCobroMP("servicio",{...servicio,pago:"Mercado Pago"},precio,tipo);
+    if(val("#c-pago")==="Mercado Pago (QR)"){
+      if(!DB.mpConectado)return toast("Conectá Mercado Pago desde Configuración primero");
+      iniciarCobroMP("servicio",{...servicio,pago:"Mercado Pago (QR)"},precio,tipo);
       return;
     }
     DB.servicios.push({...servicio,pago:val("#c-pago")||"Efectivo"});
@@ -898,8 +919,9 @@ function bindCargar(){
     const barbero=$("#p-barb")?val("#p-barb"):S.profile.name;
     const fecha=val("#p-fecha");
     const venta={id:pid(),fecha,barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),mes:monthOf(fecha)};
-    if(val("#p-pago")==="Mercado Pago"){
-      iniciarCobroMP("producto",{...venta,pago:"Mercado Pago"},cant*precioU,nombre);
+    if(val("#p-pago")==="Mercado Pago (QR)"){
+      if(!DB.mpConectado)return toast("Conectá Mercado Pago desde Configuración primero");
+      iniciarCobroMP("producto",{...venta,pago:"Mercado Pago (QR)"},cant*precioU,nombre);
       return;
     }
     DB.ventas.push({...venta,pago:val("#p-pago")||"Efectivo"});
@@ -1008,7 +1030,7 @@ function agendaTable(list,showBarb){
   const rows=list.length?list.map(t=>{
     const estadoCell=t.estado==="done"
       ?`<span class="pill done" data-tg="${t.id}" style="cursor:pointer" title="Volver a pendiente (no borra lo ya cobrado)">Atendido ✓</span>`
-      :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
+      :`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="miniin" data-turnopago="${t.id}" style="width:auto;padding:6px 8px;font-size:12px">${PAGOS.filter(m=>m!=="Mercado Pago (QR)").map(m=>`<option>${m}</option>`).join("")}</select><button class="pill pend" data-tg="${t.id}" style="border:0;cursor:pointer">Marcar atendido</button></div>`;
     const wa=telefonoWhatsapp(t.telefono);
     const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeRecordatorio(t))}" target="_blank" rel="noopener" title="Enviar recordatorio por WhatsApp">WhatsApp</a>`:"";
     return `<tr class="${solap.has(t.id)?"rowalert":""}"><td class="tnum" style="font-weight:700;color:var(--accent-ink)">${t.hora}</td>${showBarb?`<td>${esc(t.barbero)}</td>`:""}<td>${esc(t.cliente)}${t.origen==="web"?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Reservado desde la página de reservas">Web</span>':""}${t.telefono?`<br><small style="color:var(--ink-3)">${esc(t.telefono)}</small>`:""}${solap.has(t.id)?'<div class="overlapnote">⚠ Se superpone con otro turno</div>':""}</td><td>${esc(t.servicio)}${t.servicioId?' <span class="pill" style="background:var(--panel-3);color:var(--ink-2)" title="Ya se cargó en Finanzas">Vinculado</span>':""}</td><td>${estadoCell}</td><td style="display:flex;gap:6px;align-items:center">${waBtn}<button class="del" data-delt="${t.id}">✕</button></td></tr>`;
