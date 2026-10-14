@@ -66,6 +66,8 @@
   .pindot.on{background:var(--accent);border-color:var(--accent)}
   .pindot.err{background:var(--crit);border-color:var(--crit);animation:shake .3s}
   @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .spinnerdot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
   .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   .keypad button{aspect-ratio:1.5;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:22px;font-weight:700;border-radius:12px}
   .keypad button:hover{border-color:var(--accent);background:var(--panel-3)}
@@ -377,7 +379,7 @@ function upsertClienteLocal(nombre,telefono){
 /* ---------- state ---------- */
 const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
   authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
-  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,
+  onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,cobroMP:null,
   invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
 const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago"];
 let DB=null;
@@ -735,9 +737,72 @@ function facturarCard(f){
     </div>
   </div>`;
 }
+
+/* ================= COBRAR CON MERCADO PAGO (QR, confirmación automática) =================
+   El corte/venta NO se carga al tocar el botón — queda "pendiente" hasta que Mercado Pago
+   confirma el pago de verdad (vía su webhook, del lado del servidor). El navegador se entera
+   solo, en tiempo real, a través de Supabase Realtime — nadie necesita tocar "Actualizar". */
+function qrMP(url){return "https://api.qrserver.com/v1/create-qr-code/?size=260x260&data="+encodeURIComponent(url);}
+async function iniciarCobroMP(tipoCarga,payload,monto,concepto){
+  if(!sb||!S.authUser)return toast("Cobrar con Mercado Pago necesita estar conectado con tu cuenta");
+  S.cobroMP={estado:"generando"};render();
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    const resp=await fetch(SUPABASE_URL+"/functions/v1/crear-pago-mp",{
+      method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+      body:JSON.stringify({monto,concepto}),
+    });
+    const data=await resp.json().catch(()=>({}));
+    if(!resp.ok||!data.id){S.cobroMP={estado:"error",msg:data.error||"No se pudo generar el cobro"};render();return;}
+    S.cobroMP={estado:"pendiente",id:data.id,initPoint:data.initPoint,qr:qrMP(data.initPoint),monto,concepto,tipoCarga,payload};
+    render();
+    suscribirCobroMP(data.id);
+  }catch(e){S.cobroMP={estado:"error",msg:"No se pudo conectar con el servidor"};render();}
+}
+function suscribirCobroMP(id){
+  if(!sb)return;
+  if(S.cobroMPCanal){try{sb.removeChannel(S.cobroMPCanal);}catch(e){}}
+  S.cobroMPCanal=sb.channel("cobro-"+id)
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"cobros_mp",filter:"id=eq."+id},(payload)=>{
+      if(payload.new&&payload.new.estado==="aprobado")finalizarCobroMP();
+    })
+    .subscribe();
+}
+function finalizarCobroMP(){
+  if(!S.cobroMP||S.cobroMP.estado!=="pendiente")return;
+  const {tipoCarga,payload}=S.cobroMP;
+  if(tipoCarga==="servicio")DB.servicios.push(payload);
+  else DB.ventas.push(payload);
+  if(S.cobroMPCanal){try{sb.removeChannel(S.cobroMPCanal);}catch(e){}S.cobroMPCanal=null;}
+  S.cobroMP=null;
+  commit("Pago confirmado — "+(tipoCarga==="servicio"?"corte cargado":"venta cargada")+" ✓");
+}
+function cancelarCobroMP(){
+  if(S.cobroMPCanal){try{sb.removeChannel(S.cobroMPCanal);}catch(e){}S.cobroMPCanal=null;}
+  S.cobroMP=null;render();
+}
+function viewCobroMP(){
+  const c=S.cobroMP;
+  if(c.estado==="generando")return `<div class="card fade"><h3>Generando el cobro…</h3><div class="sub">Un momento.</div></div>`;
+  if(c.estado==="error")return `<div class="card fade"><h3>No se pudo generar el cobro</h3><div class="sub">${esc(c.msg||"Probá de nuevo")}</div><button class="tbtn" id="mp-cancelar" style="margin-top:8px">← Volver</button></div>`;
+  return `<div class="card fade" style="border-color:var(--accent);background:var(--accent-soft);text-align:center">
+    <h3 style="justify-content:center">Cobrando con Mercado Pago</h3>
+    <div class="sub">${esc(c.concepto||"")} · ${money(c.monto)}</div>
+    <img src="${c.qr}" alt="QR de Mercado Pago" style="width:200px;height:200px;border-radius:12px;border:1px solid var(--line);background:#fff;margin:8px 0">
+    <div class="sub">Mostrale este QR al cliente, o <a href="${esc(c.initPoint)}" target="_blank" rel="noopener">abrí el link</a> para pagar desde otra pantalla.</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;color:var(--ink-2);font-size:13px"><span class="spinnerdot"></span> Esperando que el cliente pague…</div>
+    <button class="tbtn" id="mp-cancelar" style="margin-top:14px">Cancelar</button>
+  </div>`;
+}
+function bindCobroMP(){
+  const c=$("#mp-cancelar");if(c)c.onclick=cancelarCobroMP;
+}
+
 function tCargar(){
   const isOwner=S.profile.type==="owner";
   const who=isOwner?"":`<b>${esc(S.profile.name)}</b> · `;
+  if(S.cobroMP)return head("Cargar","Rápido: "+who+"elegí y tocá Cargar.")+viewCobroMP();
   const seg=`<div class="seg"><button class="${S.loadType==="servicio"?"sel":""}" data-lt="servicio">Corte / Servicio</button><button class="${S.loadType==="producto"?"sel":""}" data-lt="producto">Producto</button></div>`;
   let form;
   if(S.loadType==="servicio"){
@@ -786,6 +851,15 @@ function bindCargar(){
     $("#price-hint").textContent=libre?"Escribí el precio":"";
     b.dataset._sel="1";
   });
+  ["c","p"].forEach(prefix=>{
+    const sel=$(`#${prefix}-pago`);const btn=$(`#${prefix}-add`);
+    if(sel&&btn){
+      const esMP=()=>sel.value==="Mercado Pago";
+      const actualizarBtn=()=>{btn.textContent=esMP()?"Cobrar con Mercado Pago":(prefix==="c"?"✓ Cargar corte":"✓ Cargar venta");};
+      actualizarBtn();
+      sel.onchange=actualizarBtn;
+    }
+  });
   const ca=$("#c-add");if(ca)ca.onclick=()=>{
     const sel=$("[data-tipo].sel");if(!sel)return toast("Elegí el tipo de corte");
     const tipo=sel.dataset.tipo, precio=num("#c-precio");
@@ -793,7 +867,12 @@ function bindCargar(){
     const barbero=$("#c-barb")?val("#c-barb"):S.profile.name;
     const com=comDe(barbero);
     const fecha=val("#c-fecha");
-    DB.servicios.push({id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),pago:val("#c-pago")||"Efectivo",comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)});
+    const servicio={id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)};
+    if(val("#c-pago")==="Mercado Pago"){
+      iniciarCobroMP("servicio",{...servicio,pago:"Mercado Pago"},precio,tipo);
+      return;
+    }
+    DB.servicios.push({...servicio,pago:val("#c-pago")||"Efectivo"});
     S.facturarPendiente=($("#c-fact-chk")&&$("#c-fact-chk").checked)?{cliente:val("#c-fact-nombre")||val("#c-desc")||"Consumidor Final",doc:val("#c-fact-doc"),concepto:tipo,monto:precio,fecha}:null;
     commit("Corte cargado ✓  ("+esc(barbero)+")");
   };
@@ -804,7 +883,12 @@ function bindCargar(){
     if(precioU<=0)return toast("Poné un precio");
     const barbero=$("#p-barb")?val("#p-barb"):S.profile.name;
     const fecha=val("#p-fecha");
-    DB.ventas.push({id:pid(),fecha,barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),pago:val("#p-pago")||"Efectivo",mes:monthOf(fecha)});
+    const venta={id:pid(),fecha,barbero,producto:nombre,cat:prod?prod.cat:"",cant,precioU,costoU,total:cant*precioU,costoTotal:cant*costoU,margen:cant*(precioU-costoU),mes:monthOf(fecha)};
+    if(val("#p-pago")==="Mercado Pago"){
+      iniciarCobroMP("producto",{...venta,pago:"Mercado Pago"},cant*precioU,nombre);
+      return;
+    }
+    DB.ventas.push({...venta,pago:val("#p-pago")||"Efectivo"});
     S.facturarPendiente=($("#p-fact-chk")&&$("#p-fact-chk").checked)?{cliente:val("#p-fact-nombre")||"Consumidor Final",doc:val("#p-fact-doc"),concepto:nombre,monto:cant*precioU,fecha}:null;
     commit("Venta cargada ✓");
   };
@@ -1398,7 +1482,7 @@ function render(){
   document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
   document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
   // per-tab bindings
-  bindCargar();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
+  bindCargar();bindCobroMP();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
   $("#foot").textContent=sb?"Datos sincronizados con la nube.":"Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
 }
 

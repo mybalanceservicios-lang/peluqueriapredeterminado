@@ -160,6 +160,35 @@ create trigger trg_validar_alta_perfil
 
 
 -- ============================================================
+-- Cobros con Mercado Pago (cobrar con QR/link, confirmación automática)
+-- ============================================================
+-- Un cobro con Mercado Pago queda "pendiente" acá apenas se genera el QR. El empleado NO
+-- carga el corte/venta todavía — recién se carga cuando esta fila pasa a "aprobado", lo cual
+-- SOLO puede hacerlo el webhook de Mercado Pago (función de backend con permisos elevados,
+-- ver supabase/functions/webhook-mp) después de confirmar el pago directo con la API de
+-- Mercado Pago. El cliente (navegador) nunca puede marcar un cobro como pagado él mismo —
+-- fijate que no hay ninguna policy de "update" para el personal, a propósito.
+create table if not exists cobros_mp (
+  id text primary key,
+  monto numeric not null,
+  concepto text,
+  estado text not null default 'pendiente' check (estado in ('pendiente','aprobado','rechazado','expirado')),
+  mp_preference_id text,
+  mp_payment_id text,
+  creado_por uuid references auth.users(id),
+  creado_en timestamptz default now(),
+  confirmado_en timestamptz
+);
+alter table cobros_mp enable row level security;
+create policy "cobros_mp select con perfil" on cobros_mp for select using (exists (select 1 from perfiles where id = auth.uid()));
+create policy "cobros_mp insert con perfil" on cobros_mp for insert with check (exists (select 1 from perfiles where id = auth.uid()));
+
+-- Habilita que el navegador reciba en tiempo real el cambio de estado de SU cobro
+-- (así el sistema sabe que se pagó sin tener que estar preguntando todo el tiempo).
+alter publication supabase_realtime add table cobros_mp;
+
+
+-- ============================================================
 -- MUY IMPORTANTE: en el dashboard de Supabase, Authentication -> Providers -> Email,
 -- dejá ACTIVADO "Allow new users to sign up". Acá, a diferencia de un sistema típico,
 -- eso es correcto: cualquiera puede crear una cuenta de acceso, pero sin un código de

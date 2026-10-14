@@ -35,8 +35,30 @@ Para el dueño, la navegación está organizada en 3 secciones:
 
 Configuración (nombre, logo, sesión, invitar barberos, accesos, respaldo JSON) accesible desde el ícono de engranaje junto al perfil.
 
+## Cobrar con Mercado Pago (QR, confirmación automática)
+Al cargar un corte o una venta, elegir "Mercado Pago" como medio de pago muestra un botón "Cobrar con Mercado Pago" en vez de cargar directo: genera un QR real (Checkout Pro) y el corte/venta queda **pendiente** — recién se carga solo, sin tocar nada, cuando Mercado Pago confirma que el cliente pagó. Esto necesita dos funciones de backend (Edge Functions de Supabase) además del proyecto de Supabase ya configurado:
+
+1. Crear una aplicación en [mercadopago.com.ar/developers/panel](https://www.mercadopago.com.ar/developers/panel) (con la cuenta de Mercado Pago del negocio) y copiar el **Access Token de producción** (nunca el de prueba una vez que el negocio ya cobra de verdad).
+2. En esa misma aplicación, activar **Webhooks** y copiar la **clave secreta de firma** (la usa `webhook-mp` para verificar que el aviso realmente vino de Mercado Pago).
+3. Instalar la [CLI de Supabase](https://supabase.com/docs/guides/cli) y hacer login (`supabase login`), vincular el proyecto (`supabase link --project-ref TU_PROJECT_REF` — el ref está en la URL del proyecto en el dashboard).
+4. Cargar los secretos (reemplazá por los valores reales):
+   ```
+   supabase secrets set MP_ACCESS_TOKEN=APP_USR-xxxxxxxx MP_WEBHOOK_SECRET=xxxxxxxx
+   ```
+5. Desplegar las dos funciones:
+   ```
+   supabase functions deploy crear-pago-mp
+   supabase functions deploy webhook-mp --no-verify-jwt
+   ```
+   (`webhook-mp` va sin verificación de JWT porque la llama Mercado Pago, no un usuario logueado de la app — su seguridad es la firma, no un token de Supabase.)
+6. Correr (si no lo corriste ya) el bloque de `cobros_mp` de `supabase-schema.sql` — crea la tabla, sus políticas, y la habilita para Realtime (así el navegador se entera solo, al instante, cuando se confirma un pago).
+
+El token de Mercado Pago **nunca** queda en `index.html` ni en ningún archivo del repo — vive solo como secreto de las funciones, en el servidor. Si algo de esto no está configurado, el botón de Mercado Pago simplemente no genera el cobro y avisa que hace falta terminar de conectarlo — el resto del sistema sigue funcionando normal mientras tanto.
+
+**Antes de usarlo con cobros reales**: la verificación de firma del webhook (`supabase/functions/webhook-mp/index.ts`) está armada siguiendo el esquema que documenta Mercado Pago, pero no se pudo probar contra la API real de Mercado Pago desde este entorno (sin acceso a internet para eso). Antes de cobrar en serio, hacé una prueba con un pago chico de verdad y confirmá en los logs de la función (`supabase functions logs webhook-mp`) que la firma se valida bien y el corte se carga solo.
+
 ## Estado
-Sistema con reservas online conectadas a un backend real (Supabase) y login real por mail para el personal, con alta de nuevos accesos por código de invitación (sin necesidad de tocar el panel de Supabase) — ya en condiciones de usarse con una barbería real, siguiendo los pasos de "Backend" de arriba. El resto del sistema (servicios, ventas, gastos, cierres) sigue siendo 100% local por dispositivo por ahora — no se sincroniza entre celular y compu.
+Sistema con reservas online conectadas a un backend real (Supabase), login real por mail para el personal (con alta de nuevos accesos por código de invitación, sin tocar el panel de Supabase), y cobro con Mercado Pago con confirmación automática — ya en condiciones de usarse con una barbería real, siguiendo los pasos de "Backend" de arriba. El resto del sistema (servicios, ventas, gastos, cierres) sigue siendo 100% local por dispositivo por ahora — no se sincroniza entre celular y compu.
 
 ### Si el proyecto de Supabase ya venía de una versión anterior
 `supabase-schema.sql` tiene, al final, un bloque de migración para cada caso: si venías de la versión "de prueba" (políticas abiertas, sin login) o de una versión intermedia con login por mail pero sin invitaciones. Reemplazá las políticas indicadas y corré la función/trigger de invitaciones — sin eso, el sistema de códigos no funciona.
