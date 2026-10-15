@@ -119,6 +119,12 @@
   .bf{display:flex;flex-direction:column;gap:6px;flex:1;min-width:130px}
   .bf label{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
   .hint{display:block;font-size:11.5px;color:var(--ink-3);margin-top:5px}
+  .clisug{display:none;position:absolute;left:0;right:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg);margin-top:4px;max-height:220px;overflow-y:auto}
+  .clisug.show{display:block}
+  .clisug button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 12px;font-size:13px;color:var(--ink);border-bottom:1px solid var(--line-2);cursor:pointer}
+  .clisug button:last-child{border-bottom:0}
+  .clisug button:hover{background:var(--panel-2)}
+  .clisug button small{display:block;color:var(--ink-3);font-size:11px;margin-top:1px}
   .bf input,.bf select{background:var(--panel-2);border:1.5px solid var(--line);border-radius:11px;padding:13px 14px;font-size:16px;color:var(--ink);outline:none}
   .bf input:focus,.bf select:focus{border-color:var(--accent);background:var(--panel-3)}
   .bf .price-big{font-size:26px;font-weight:800;color:var(--accent-ink);letter-spacing:-.02em}
@@ -291,9 +297,11 @@ async function cargarClientesRemotos(){
     return true;
   }catch(e){return false;}
 }
-async function guardarClienteRemoto(nombre,telefono){
+async function guardarClienteRemoto(nombre,telefono,notas){
   if(!sb||!telefono)return;
-  try{await conTimeout(sb.from("clientes").upsert({telefono,nombre,actualizado_en:new Date().toISOString()}));}catch(e){}
+  const payload={telefono,nombre,actualizado_en:new Date().toISOString()};
+  if(notas!==undefined)payload.notas=notas; // si no se manda, no se toca (no pisa una descripción ya guardada)
+  try{await conTimeout(sb.from("clientes").upsert(payload));}catch(e){}
 }
 
 /* ---------- perfiles (login real: cada persona entra con su mail y el sistema recuerda si es dueño o qué barbero es) ---------- */
@@ -384,15 +392,15 @@ function telefonoWhatsapp(tel){
   if(d.startsWith("0"))d=d.slice(1);
   return "549"+d;
 }
-function upsertClienteLocal(nombre,telefono){
+function upsertClienteLocal(nombre,telefono,notas){
   if(!telefono)return;
   const existente=DB.clientes.find(c=>c.telefono===telefono);
-  if(existente)existente.nombre=nombre;
-  else DB.clientes.push({telefono,nombre,notas:""});
+  if(existente){existente.nombre=nombre;if(notas!==undefined)existente.notas=notas;}
+  else DB.clientes.push({telefono,nombre,notas:notas||""});
 }
 
 /* ---------- state ---------- */
-const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",
+const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",clDesde:"",clHasta:"",
   authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
   onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,cobroMP:null,ocultarMontos:false,
   invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
@@ -849,7 +857,21 @@ function tCargar(){
         <div class="bf"><label>Fecha</label><input type="date" id="c-fecha" value="${today()}"></div>
         <div class="bf"><label>Hora</label><input type="time" id="c-hora" value="${nowTime()}"></div>
       </div>
-      <div class="bf"><label>Cliente / Nota (opcional)</label><input id="c-desc" placeholder="Ej: Juan Pérez, o algo que te ayude a recordar"></div>
+      <div class="bf">
+        <label>Cliente (opcional)</label>
+        <div style="position:relative">
+          <input id="c-desc" placeholder="Nombre, o una descripción (ej: pelo largo, viene los sábados)" autocomplete="off">
+          <div class="clisug" id="c-cliente-sug"></div>
+        </div>
+        <button type="button" class="tbtn sm" id="c-cliente-toggle" style="margin-top:8px;width:fit-content">+ Nuevo cliente</button>
+        <div class="addform" id="c-cliente-nuevo" style="display:none;margin-top:8px;margin-bottom:0">
+          <div class="ff grow"><label>Nombre</label><input id="c-cliente-nombre"></div>
+          <div class="ff"><label>Teléfono</label><input id="c-cliente-telefono" placeholder="Ej: 11 5555-5555"></div>
+          <div class="ff grow"><label>Descripción (opcional)</label><input id="c-cliente-desc" placeholder="Ej: pelo largo, alérgico a..."></div>
+          <button type="button" class="addbtn" id="c-cliente-guardar">Guardar cliente</button>
+        </div>
+        <input type="hidden" id="c-cliente-tel">
+      </div>
       <div class="bf"><label>¿Con qué pagó el cliente?</label><select id="c-pago">${pagoOptionsHTML()}</select>${DB.mpConectado?"":'<span class="hint">Para cobrar con QR, conectá Mercado Pago desde Configuración</span>'}</div>
       ${facturaCheckHTML("c")}
       <button class="cargar" id="c-add">✓ Cargar corte</button>
@@ -894,6 +916,45 @@ function bindCargar(){
       sel.onchange=actualizarBtn;
     }
   });
+  // --- cliente: buscar por nombre o descripción mientras se escribe, elegir uno existente
+  // o crear un perfil nuevo ahí mismo, sin salir de Cargar ---
+  const cdesc=$("#c-desc"),csug=$("#c-cliente-sug"),ctel=$("#c-cliente-tel");
+  if(cdesc&&csug&&ctel){
+    let seleccionActual="";
+    const buscarClientes=()=>{
+      if(ctel.value&&cdesc.value!==seleccionActual)ctel.value=""; // si edita el texto después de elegir, se desvincula ese cliente
+      const q=cdesc.value.trim().toLowerCase();
+      if(q.length<2){csug.classList.remove("show");csug.innerHTML="";return;}
+      const matches=DB.clientes.filter(c=>c.nombre.toLowerCase().includes(q)||(c.notas||"").toLowerCase().includes(q)).slice(0,6);
+      if(!matches.length){csug.classList.remove("show");csug.innerHTML="";return;}
+      csug.innerHTML=matches.map(c=>`<button type="button" data-cliente-tel="${esc(c.telefono)}" data-cliente-nombre="${esc(c.nombre)}">${esc(c.nombre)}<small>${esc(c.telefono)}${c.notas?" · "+esc(c.notas):""}</small></button>`).join("");
+      csug.classList.add("show");
+      csug.querySelectorAll("[data-cliente-tel]").forEach(b=>b.onclick=()=>{
+        cdesc.value=b.dataset.clienteNombre;
+        seleccionActual=b.dataset.clienteNombre;
+        ctel.value=b.dataset.clienteTel;
+        csug.classList.remove("show");csug.innerHTML="";
+      });
+    };
+    cdesc.oninput=buscarClientes;
+    cdesc.addEventListener("blur",()=>setTimeout(()=>csug.classList.remove("show"),150)); // da tiempo a que el click en una sugerencia se registre antes de ocultar la lista
+  }
+  const ctoggle=$("#c-cliente-toggle");if(ctoggle)ctoggle.onclick=()=>{
+    const d=$("#c-cliente-nuevo");d.style.display=d.style.display==="none"?"":"none";
+  };
+  const cguardar=$("#c-cliente-guardar");if(cguardar)cguardar.onclick=async()=>{
+    const nombre=val("#c-cliente-nombre"),telefono=val("#c-cliente-telefono"),desc=val("#c-cliente-desc");
+    if(!nombre)return toast("Poné el nombre del cliente");
+    if(!telefono)return toast("Poné el teléfono del cliente");
+    await guardarClienteRemoto(nombre,telefono,desc);
+    upsertClienteLocal(nombre,telefono,desc);
+    save();
+    $("#c-desc").value=nombre;
+    $("#c-cliente-tel").value=telefono;
+    $("#c-cliente-nuevo").style.display="none";
+    $("#c-cliente-nombre").value="";$("#c-cliente-telefono").value="";$("#c-cliente-desc").value="";
+    toast("Cliente guardado ✓");
+  };
   const ca=$("#c-add");if(ca)ca.onclick=()=>{
     const sel=$("[data-tipo].sel");if(!sel)return toast("Elegí el tipo de corte");
     const tipo=sel.dataset.tipo, precio=num("#c-precio");
@@ -901,7 +962,7 @@ function bindCargar(){
     const barbero=$("#c-barb")?val("#c-barb"):S.profile.name;
     const com=comDe(barbero);
     const fecha=val("#c-fecha");
-    const servicio={id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)};
+    const servicio={id:pid(),fecha,hora:val("#c-hora"),barbero,tipo,precio,desc:val("#c-desc"),clienteTelefono:val("#c-cliente-tel")||null,comBarbero:precio*com,comBarberia:precio*(1-com),mes:monthOf(fecha)};
     if(val("#c-pago")==="Mercado Pago (QR)"){
       if(!DB.mpConectado)return toast("Conectá Mercado Pago desde Configuración primero");
       iniciarCobroMP("servicio",{...servicio,pago:"Mercado Pago (QR)"},precio,tipo);
@@ -1342,19 +1403,28 @@ function bindBarberos(){
 /* ================= OWNER: clientes ================= */
 function tClientes(){
   const q=(S.clQ||"").toLowerCase().trim();
-  const list=DB.clientes.slice().filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.telefono.includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const desde=S.clDesde||"",hasta=S.clHasta||"";
+  const activo=q||desde||hasta;
+  const list=DB.clientes.slice().filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.telefono.includes(q)||(c.notas||"").toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const visitasDe=tel=>DB.servicios.filter(s=>s.clienteTelefono===tel&&(!desde||s.fecha>=desde)&&(!hasta||s.fecha<=hasta)).length;
   const rows=list.length?list.map(c=>{
     const wa=telefonoWhatsapp(c.telefono);
     const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent("Hola "+c.nombre+"! Te escribimos de "+(DB.nombre||"la barbería")+".")}" target="_blank" rel="noopener">WhatsApp</a>`:"";
-    return `<div class="perm-row"><span class="pn">${esc(c.nombre)}<small>${esc(c.telefono)}</small></span>${waBtn}</div>`;
-  }).join(""):`<div class="empty">${q?"Sin resultados para esa búsqueda.":"Todavía no hay clientes guardados. Se cargan solos cuando alguien reserva desde la web o cuando cargás un teléfono en Agenda."}</div>`;
-  return head("Clientes","Nombres y teléfonos guardados automáticamente desde las reservas.",true)
-  +`<div class="card"><div class="addform" style="margin-bottom:0"><div class="ff grow"><label>Buscar</label><input id="cl-buscar" placeholder="Nombre o teléfono" value="${esc(S.clQ||"")}"></div><button class="addbtn" id="cl-filtrar">Buscar</button>${q?'<button class="tbtn" id="cl-limpiar" style="padding:11px 16px">Ver todos</button>':""}</div></div>
+    const visitas=visitasDe(c.telefono);
+    return `<div class="perm-row"><span class="pn">${esc(c.nombre)}<small>${esc(c.telefono)}${c.notas?" · "+esc(c.notas):""}</small></span><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${visitas} corte${visitas===1?"":"s"}${desde||hasta?" en el período":""}</span>${waBtn}</div>`;
+  }).join(""):`<div class="empty">${activo?"Sin resultados para esa búsqueda.":"Todavía no hay clientes guardados. Se cargan solos cuando alguien reserva desde la web, cuando cargás un teléfono en Agenda, o cuando creás un perfil nuevo desde Cargar."}</div>`;
+  return head("Clientes","Nombres, teléfonos y cuántas veces vino cada uno.",true)
+  +`<div class="card"><div class="addform" style="margin-bottom:0">
+      <div class="ff grow"><label>Buscar</label><input id="cl-buscar" placeholder="Nombre, teléfono o descripción" value="${esc(S.clQ||"")}"></div>
+      <div class="ff"><label>Cortes desde</label><input type="date" id="cl-desde" value="${desde}"></div>
+      <div class="ff"><label>hasta</label><input type="date" id="cl-hasta" value="${hasta}"></div>
+      <button class="addbtn" id="cl-filtrar">Filtrar</button>${activo?'<button class="tbtn" id="cl-limpiar" style="padding:11px 16px">Ver todos</button>':""}
+    </div></div>
   <div class="card fade"><h3>${list.length} cliente${list.length===1?"":"s"}</h3>${rows}</div>`;
 }
 function bindClientes(){
-  const f=$("#cl-filtrar");if(f)f.onclick=()=>{S.clQ=val("#cl-buscar");render();};
-  const l=$("#cl-limpiar");if(l)l.onclick=()=>{S.clQ="";render();};
+  const f=$("#cl-filtrar");if(f)f.onclick=()=>{S.clQ=val("#cl-buscar");S.clDesde=val("#cl-desde");S.clHasta=val("#cl-hasta");render();};
+  const l=$("#cl-limpiar");if(l)l.onclick=()=>{S.clQ="";S.clDesde="";S.clHasta="";render();};
 }
 
 /* ================= OWNER: precios ================= */
