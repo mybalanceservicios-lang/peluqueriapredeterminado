@@ -293,7 +293,7 @@ async function cargarClientesRemotos(){
   try{
     const {data,error}=await conTimeout(sb.from("clientes").select("*").order("nombre"));
     if(error||!data)return false;
-    DB.clientes=data.map(c=>({telefono:c.telefono,nombre:c.nombre,notas:c.notas||""}));
+    DB.clientes=data.map(c=>({telefono:c.telefono,nombre:c.nombre,notas:c.notas||"",creadoEn:c.creado_en||null}));
     return true;
   }catch(e){return false;}
 }
@@ -396,15 +396,15 @@ function upsertClienteLocal(nombre,telefono,notas){
   if(!telefono)return;
   const existente=DB.clientes.find(c=>c.telefono===telefono);
   if(existente){existente.nombre=nombre;if(notas!==undefined)existente.notas=notas;}
-  else DB.clientes.push({telefono,nombre,notas:notas||""});
+  else DB.clientes.push({telefono,nombre,notas:notas||"",creadoEn:new Date().toISOString()});
 }
 
 /* ---------- state ---------- */
-const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),clQ:"",clDesde:"",clHasta:"",
+const S={profile:null,ownerUnlocked:false,tab:"finanzas",subFin:"cargar",loadType:"servicio",pinBuf:"",pinErr:"",graphB:"todos",comDesde:"",comHasta:"",comBarb:"todos",gDesde:"",gHasta:"",svDesde:"",svHasta:"",svBarb:"todos",svTipo:"todos",svPago:"todos",mhDesde:"",mhHasta:"",mhTipo:"todos",mhPago:"todos",agendaFecha:today(),cierreFecha:today(),panelMes:today().slice(0,7),clQ:"",clDesde:"",clHasta:"",
   authReady:false,authUser:null,authMode:"login",authErr:"",authBusy:false,perfil:null,
   onbCodigo:"",onbCodigoErr:"",accesos:[],accesosCargados:false,facturarPendiente:null,cobroMP:null,ocultarMontos:false,
   invitaciones:[],invitacionesCargadas:false,nuevoInvNombre:"",nuevoInvCodigo:null};
-const PAGOS=["Efectivo","Tarjeta de crédito","Tarjeta de débito","Mercado Pago (alias)","Mercado Pago (QR)"];
+const PAGOS=["Efectivo","Transferencia","Tarjeta de crédito","Tarjeta de débito","Mercado Pago (alias)","Mercado Pago (QR)"];
 let DB=null;
 
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
@@ -1052,6 +1052,8 @@ function bindMisCom(){
   const l=$("#cm-limpiar");if(l)l.onclick=()=>{S.comDesde="";S.comHasta="";render();};
 }
 function shiftDate(iso,delta){const d=new Date(iso+"T00:00:00");d.setDate(d.getDate()+delta);return d.toISOString().slice(0,10);}
+function shiftMonth(m,delta){const [y,mo]=m.split("-").map(Number);const d=new Date(y,mo-1+delta,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
+function diffDias(desde,hasta){return Math.round((new Date(hasta+"T00:00:00")-new Date(desde+"T00:00:00"))/86400000);}
 function fdateLong(iso){const d=new Date(iso+"T00:00:00");return d.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"});}
 function dateNav(){
   const f=S.agendaFecha;
@@ -1150,24 +1152,88 @@ function bindAgenda(){
 }
 
 /* ================= OWNER: panel ================= */
+function topClientesMes(m){
+  const map={};
+  DB.servicios.forEach(s=>{
+    if(s.mes!==m||!s.clienteTelefono)return;
+    if(!map[s.clienteTelefono])map[s.clienteTelefono]={visitas:0,total:0};
+    map[s.clienteTelefono].visitas++;
+    map[s.clienteTelefono].total+=s.precio;
+  });
+  return Object.entries(map).map(([tel,v])=>{
+    const c=DB.clientes.find(c=>c.telefono===tel);
+    return {nombre:c?c.nombre:tel,visitas:v.visitas,total:v.total};
+  }).sort((a,b)=>b.visitas-a.visitas||b.total-a.total).slice(0,5);
+}
+function totalHistorico(){
+  const fact=sumBy(DB.servicios,s=>s.precio)+sumBy(DB.ventas,v=>v.total);
+  const gan=sumBy(DB.servicios,s=>s.comBarberia)+sumBy(DB.ventas,v=>v.margen)-sumBy(DB.gastos,g=>g.monto);
+  return {fact,gan,cortes:DB.servicios.length};
+}
+function clientesInactivos(diasUmbral){
+  const hoy=today();
+  return DB.clientes.map(c=>{
+    const visitas=DB.servicios.filter(s=>s.clienteTelefono===c.telefono);
+    if(!visitas.length)return null;
+    const ultima=visitas.reduce((max,s)=>s.fecha>max?s.fecha:max,visitas[0].fecha);
+    const dias=diffDias(ultima,hoy);
+    return dias>=diasUmbral?{nombre:c.nombre,telefono:c.telefono,ultima,dias}:null;
+  }).filter(Boolean).sort((a,b)=>b.dias-a.dias);
+}
+function mesNav(m){
+  const esActual=m===CURM;
+  return `<div class="datenav">
+    <button data-mnav="-1" title="Mes anterior">‹</button>
+    <span class="lbl">${mLbl(m)} ${m.slice(0,4)}${esActual?' <span class="today">ESTE MES</span>':""}</span>
+    <button data-mnav="1" title="Mes siguiente">›</button>
+    ${esActual?"":'<button class="today" data-mnav="actual" style="height:34px">Volver al mes actual</button>'}
+  </div>`;
+}
 function tPanel(){
-  const fact=ingMes(CURM), gan=gananciaMes(CURM), com=comisMes(CURM);
-  const top=DB.barberos.map(b=>({n:b.n,f:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&s.mes===CURM),s=>s.precio)})).sort((a,b)=>b.f-a.f)[0];
+  const m=S.panelMes||CURM;
+  const fact=ingMes(m), gan=gananciaMes(m), com=comisMes(m);
+  const top=DB.barberos.map(b=>({n:b.n,f:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&s.mes===m),s=>s.precio)})).sort((a,b)=>b.f-a.f)[0];
   const alert=DB.productos.filter(p=>stockActual(p)<p.min).length;
   const hoyPendiente=!cierreExistente(today())&&(serviciosDia(today()).length||ventasDia(today()).length||gastosDia(today()).length);
+  const topCli=topClientesMes(m);
+  const clientesNuevos=DB.clientes.filter(c=>c.creadoEn&&monthOf(c.creadoEn)===m).length;
+  const hist=totalHistorico();
+  const inactivos=clientesInactivos(30);
+  const topRows=topCli.length?topCli.map((c,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-2)"><span style="font-size:13.5px"><b style="color:var(--ink-3);margin-right:6px">${i+1}.</b>${esc(c.nombre)}</span><span style="display:flex;gap:8px;align-items:center"><span class="pill" style="background:var(--panel-3);color:var(--ink-2)">${c.visitas} corte${c.visitas===1?"":"s"}</span><b class="tnum" style="font-size:13px">${money(c.total)}</b></span></div>`).join(""):`<div class="empty">Todavía no hay cortes vinculados a un cliente en ${mLbl(m)} ${m.slice(0,4)}.</div>`;
+  const inactivosRows=inactivos.length?inactivos.slice(0,8).map(c=>{const wa=telefonoWhatsapp(c.telefono);const waBtn=wa?`<a class="pill" style="background:var(--good-soft);color:var(--good);text-decoration:none" href="https://wa.me/${wa}?text=${encodeURIComponent("Hola "+c.nombre+"! Hace rato que no te vemos por "+(DB.nombre||"la barbería")+", ¿te esperamos?")}" target="_blank" rel="noopener">WhatsApp</a>`:"";return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-2)"><span style="font-size:13.5px">${esc(c.nombre)}<br><small style="color:var(--ink-3)">Última vez: ${fdate(c.ultima)}</small></span><span style="display:flex;gap:8px;align-items:center"><span class="pill rep">${c.dias} días</span>${waBtn}</span></div>`;}).join(""):`<div class="empty">Ningún cliente con 30+ días sin venir. 🎉</div>`;
   return head("Panel","Los números del mes de un vistazo.",true)
   +(hoyPendiente?`<div class="warnbox">Todavía no cerraste el día de hoy. <button data-tab="finanzas" data-subfin="cierre" style="border:0;background:none;color:var(--accent-ink);font-weight:700;text-decoration:underline;padding:0;cursor:pointer;font-size:inherit">Ir a Cierre diario →</button></div>`:"")
+  +`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">${mesNav(m)}</div></div>`
   +`<div class="kpis">
     ${kpi("Facturación del mes",money(fact),"cortes + productos")}
     ${kpi("Ganancia barbería",money(gan),"tras comisiones y gastos",gan>=0?1:2)}
     ${kpi("Comisiones a pagar",money(com),"a los barberos")}
     ${kpi("Barbero top",top&&top.f?esc(top.n):"—",top&&top.f?money(top.f):"sin datos")}
   </div>
+  <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+    <div><h3 style="margin-bottom:2px">Total histórico</h3><div class="sub" style="margin-bottom:0">Acumulado de todos los meses, no solo este</div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="kpi" style="width:150px"><div class="lbl">Facturación total</div><div class="val tnum">${money(hist.fact)}</div><div class="delta">${hist.cortes} cortes</div></div>
+      <div class="kpi" style="width:150px"><div class="lbl">Ganancia total</div><div class="val tnum">${money(hist.gan)}</div><div class="delta">todos los meses</div></div>
+    </div>
+  </div>
   <div class="grid2">
-    <div class="card"><h3>Facturación por barbero</h3><div class="sub">Cortes de este mes</div>${barberoBars(CURM)}</div>
+    <div class="card"><h3>Facturación por barbero</h3><div class="sub">Cortes de ${mLbl(m)} ${m.slice(0,4)}</div>${barberoBars(m)}</div>
     <div class="card"><h3>Ingresos por mes</h3><div class="sub">Cortes + productos</div>${mesChart("todos")}</div>
   </div>
+  <div class="card"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px"><h3>Top clientes</h3><div class="sub">Los que más vinieron en ${mLbl(m)} ${m.slice(0,4)}</div>${topRows}</div>
+    <div class="kpi" style="width:130px;flex-shrink:0"><div class="lbl">Clientes nuevos</div><div class="val tnum">${clientesNuevos}</div><div class="delta">en ${mLbl(m)}</div></div>
+  </div></div>
+  <div class="card"><h3>Clientes inactivos</h3><div class="sub">30 días o más sin venir — para escribirles</div>${inactivosRows}</div>
   ${alert?`<div class="card"><h3>Stock a reponer</h3><div class="sub">${alert} producto(s) bajo el mínimo</div>${DB.productos.filter(p=>stockActual(p)<p.min).map(p=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${esc(p.nombre)}</span><span class="pill rep">${stockActual(p)} / mín ${p.min}</span></div>`).join("")}</div>`:""}`;
+}
+function bindPanel(){
+  document.querySelectorAll("[data-mnav]").forEach(b=>b.onclick=()=>{
+    const d=b.dataset.mnav;
+    S.panelMes=d==="actual"?CURM:shiftMonth(S.panelMes||CURM,+d);
+    render();
+  });
 }
 function kpi(l,v,d,tone){const c=tone===1?"up-c":tone===2?"dn-c":"";return `<div class="kpi"><div class="lbl">${l}</div><div class="val tnum">${v}</div><div class="delta ${c}">${d||""}</div></div>`;}
 function barberoBars(m){const data=DB.barberos.map(b=>({n:b.n,v:sumBy(DB.servicios.filter(s=>s.barbero===b.n&&(!m||s.mes===m)),s=>s.precio)}));const max=Math.max(1,...data.map(d=>d.v));return `<div class="chart">${data.map(d=>`<div class="barcol"><span class="bv">${d.v?money(d.v):""}</span><div class="barwrap"><div class="bar i" style="height:${d.v/max*100}%"></div></div><small>${esc(d.n)}</small></div>`).join("")}</div>`;}
@@ -1619,7 +1685,7 @@ function render(){
   document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;if(b.dataset.subfin)S.subFin=b.dataset.subfin;render();});
   document.querySelectorAll("[data-subfin]:not([data-tab])").forEach(b=>b.onclick=()=>{S.subFin=b.dataset.subfin;render();});
   // per-tab bindings
-  bindCargar();bindCobroMP();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();
+  bindCargar();bindCobroMP();bindAgenda();bindCierre();bindWebVirtual();bindGraficos();bindBarberos();bindPrecios();bindGastos();bindStock();bindConfig();bindDeletes();bindMisCom();bindServicios();bindMisHist();bindClientes();bindPanel();
   $("#foot").textContent=sb?"Datos sincronizados con la nube.":"Datos guardados en esta compu (localStorage). Hacé un respaldo cada tanto desde Configuración.";
 }
 
